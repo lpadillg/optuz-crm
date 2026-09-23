@@ -218,8 +218,10 @@ async function respond(ctx: AgentContext): Promise<RunResult> {
   // meses no ayuda a quien está leyendo «¿en qué sucursal?» en el teléfono.
   // Ni siquiera hace falta que sea una pregunta: «necesito que me indiques en qué sucursal» pide lo mismo sin
   // signos de interrogación, y deja al cliente igual de a pie.
+  // Sin tildes para detectar: «Confírmame» no casa con /confirm/, y el modelo escribe de las dos formas.
+  const sinTildes = (t: string) => t.normalize("NFD").replace(/[̀-ͯ]/g, "");
   const pideLaSucursal = /((en|a) (qu[ée])|cu[áa]l|ind[íi]ca|indiques|dime|elige|escoge|selecciona|prefieres)[^.?!]{0,40}(sucursal|tienda|sede)/i;
-  const preguntaLaSucursal = !nombraVariasTiendas && pideLaSucursal.test(text);
+  const preguntaLaSucursal = !nombraVariasTiendas && pideLaSucursal.test(sinTildes(text));
   if (!toolCtx.handedOff && preguntaLaSucursal && tiendas.length >= 2) {
     try {
       // Se conserva lo que el modelo escribió ANTES de pedir la sucursal —el saludo, o la respuesta a lo que
@@ -227,7 +229,7 @@ async function respond(ctx: AgentContext): Promise<RunResult> {
       // texto entero, a quien escribía por primera vez le caían cinco tiendas sin un «hola» delante.
       // Solo si delante quedan frases COMPLETAS: cortar a media frase («Entiendo, pero necesito que me»)
       // se lee peor que no poner nada.
-      const corte = text.search(pideLaSucursal);
+      const corte = sinTildes(text).search(pideLaSucursal);
       const previo = corte > 0 ? text.slice(0, corte) : "";
       const finFrase = Math.max(previo.lastIndexOf("."), previo.lastIndexOf("!"), previo.lastIndexOf("?"));
       const saludo = finFrase > 0 ? previo.slice(0, finFrase + 1).trim() : "";
@@ -281,7 +283,12 @@ async function respond(ctx: AgentContext): Promise<RunResult> {
   // Si la pregunta habla de horarios, no es una pregunta de sucursal aunque nombre la tienda.
   const preguntaPorHorario = preguntaFranja || /\d{1,2}:\d{2}|\d{1,2}\s?(am|pm)|qué d[íi]a|que d[íi]a|cu[áa]ndo/i.test(text);
   const suya = tiendas.find((t) => toolCtx.branchId && text.includes(t.title));
-  const pideConfirmarTienda = !!suya && !nombraVariasTiendas && !preguntaPorHorario && text.includes("?");
+  // Pedir confirmación de la tienda manda sobre preguntar el día: es el paso anterior. El modelo mezcla las
+  // dos cosas en un mensaje («confírmame que la sucursal es Huánuco y dime qué día»), el cliente responde
+  // «sí» y ya no se sabe a cuál de las dos: la conversación se atasca y vuelve a empezar por la sucursal.
+  const pideConfirmarExplicito = /(confirm|te agendo en|te agendamos en|es correcto|correcta)/i.test(sinTildes(text));
+  // «Confírmame que la sucursal es Huánuco» no lleva signos de interrogación y pide exactamente lo mismo.
+  const pideConfirmarTienda = !!suya && !nombraVariasTiendas && (pideConfirmarExplicito || (!preguntaPorHorario && text.includes("?")));
   if (pideConfirmarTienda && !toolCtx.handedOff) {
     try {
       await sendBotOptions(ctx.conversationId, `¿Te agendo en nuestra tienda de ${suya!.title}?`, [`Sí, en ${suya!.title}`, "En otra tienda"], { kind: "options" });

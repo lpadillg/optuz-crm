@@ -493,6 +493,17 @@ describe("confirmar la tienda", () => {
     expect(opciones).toEqual(["Sí, en Huánuco", "En otra tienda"]);
   }, 20_000);
 
+  it("confirmar la tienda manda sobre preguntar el día, aunque vengan en el mismo mensaje", async () => {
+    // El caso real: «Confírmame que la sucursal es Huánuco y dime qué día y hora». El cliente responde «sí»,
+    // nadie sabe a cuál de las dos preguntas, y la conversación vuelve a empezar por la sucursal.
+    h.create.mockResolvedValueOnce(textReply("Perfecto, Luis.\n\nConfírmame que la sucursal es *Huánuco* y dime qué día y hora prefieres."));
+    await runAgent(ctx);
+
+    const [, texto, opciones] = h.sendOptions.mock.calls[0];
+    expect(texto).toBe("¿Te agendo en nuestra tienda de Huánuco?");
+    expect(opciones).toEqual(["Sí, en Huánuco", "En otra tienda"]);
+  }, 20_000);
+
   it("una pregunta de horarios que nombra la tienda NO se convierte en confirmación de sucursal", async () => {
     h.create.mockResolvedValueOnce(textReply("En Huánuco, ¿qué día te viene bien?"));
     await runAgent(ctx);
