@@ -75,6 +75,17 @@ describe("dynamicContext", () => {
 
   it("sin sucursal detectada pide preguntarla; con ella la muestra con su dirección", () => {
     expect(dynamicContext(base)).toContain("aún NO identificada");
-    expect(dynamicContext({ ...base, branch: branches[0] })).toContain("Sucursal detectada: Huánuco (Jr. 28 de Julio 1131");
+    expect(dynamicContext({ ...base, branch: branches[0] })).toContain("SU sucursal es Huánuco (Jr. 28 de Julio 1131");
+  });
+});
+
+describe("calendario en el contexto", () => {
+  it("da los próximos días con su fecha exacta, para que no las calcule", () => {
+    const ctx = dynamicContext({ nowLima: "martes 22 de setiembre de 2026, 10:47 pm", leadName: "Luz", branch: null, isFirstBotReply: false, hasPhone: true });
+    expect(ctx).toContain("Calendario (usa ESTAS fechas, no las calcules)");
+    // Cada día lleva su fecha: «lunes 28 de setiembre = 2026-09-28».
+    expect(ctx).toMatch(/\w+, \d+ de \w+ = \d{4}-\d{2}-\d{2}/);
+    expect(ctx).toContain("(hoy)");
+    expect(ctx).toContain("(mañana)");
   });
 });

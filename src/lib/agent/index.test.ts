@@ -62,7 +62,7 @@ const h = vi.hoisted(() => {
     return b;
   }
 
-  return { state, db: { from: builder }, create: vi.fn(), send: vi.fn(), sendOptions: vi.fn(), executeTool: vi.fn() };
+  return { state, db: { from: builder }, create: vi.fn(), send: vi.fn(), sendOptions: vi.fn(), nextSlots: vi.fn(), executeTool: vi.fn() };
 });
 
 vi.mock("server-only", () => ({}));
@@ -74,6 +74,7 @@ vi.mock("openai", () => ({
 vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: () => h.db }));
 vi.mock("@/lib/whatsapp/client", () => ({ sendWhatsAppText: h.send }));
 vi.mock("@/lib/outbound", () => ({ sendBotOptions: h.sendOptions }));
+vi.mock("@/lib/appointments", () => ({ findNextSlots: h.nextSlots }));
 vi.mock("./tools", () => ({
   AGENT_TOOLS: [{ name: "set_branch", description: "d", input_schema: { type: "object", properties: {} } }],
   executeTool: h.executeTool,
@@ -120,6 +121,7 @@ beforeEach(() => {
   h.create.mockReset();
   h.send.mockReset().mockResolvedValue({ id: "wamid.OUT1" });
   h.sendOptions.mockReset().mockResolvedValue("msg1");
+  h.nextSlots.mockReset().mockResolvedValue(["2026-09-28T15:00:00.000Z", "2026-09-28T16:00:00.000Z", "2026-09-28T17:00:00.000Z"]);
   h.executeTool.mockReset();
   for (const k of ["OPENAI_MODEL", "OPENAI_REASONING_EFFORT", "OPENAI_BASE_URL", "BUSINESS_NAME"]) delete process.env[k];
   process.env.OPENAI_API_KEY = "test";
@@ -411,6 +413,28 @@ describe("preguntar mañana o tarde", () => {
     await runAgent(ctx);
 
     expect(h.sendOptions).not.toHaveBeenCalled();
+    expect(h.send).toHaveBeenCalledTimes(1);
+  }, 20_000);
+});
+
+describe("no decir «no hay cupo» sin mirar la agenda", () => {
+  it("si lo afirma sin consultar, se consulta y se le ofrecen horarios reales", async () => {
+    h.create.mockResolvedValueOnce(textReply("No hay disponibilidad para el viernes a las 12:00 pm."));
+    await runAgent(ctx);
+
+    expect(h.nextSlots).toHaveBeenCalled();
+    expect(h.sendOptions).toHaveBeenCalledTimes(1);
+    expect(h.send).not.toHaveBeenCalled(); // la afirmación falsa no sale
+  }, 20_000);
+
+  it("si SÍ consultó la agenda, su respuesta se respeta", async () => {
+    h.create
+      .mockResolvedValueOnce(callReply({ name: "get_availability", args: { date: "2026-09-25" }, id: "c1" }))
+      .mockResolvedValueOnce(textReply("No hay disponibilidad ese día, pero te ofrezco otras opciones."));
+    h.executeTool.mockResolvedValueOnce({ content: '{"horarios_libres":[]}' });
+    await runAgent(ctx);
+
+    expect(h.nextSlots).not.toHaveBeenCalled();
     expect(h.send).toHaveBeenCalledTimes(1);
   }, 20_000);
 });

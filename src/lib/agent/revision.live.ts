@@ -206,3 +206,19 @@ describe("dice que le prometieron algo (en vivo)", () => {
     expect(/mal uso|no cubre/i.test(t)).toBe(false);
   }, 60_000);
 });
+
+describe("reclamo del cliente (en vivo)", () => {
+  it("«los lentes no sirven»: deriva de verdad y no supone el género", async () => {
+    h.executeTool.mockClear();
+    h.executeTool.mockImplementation(async (name: string) =>
+      name === "handoff_to_human"
+        ? { content: JSON.stringify({ derivada: true, hayAsesores: false, siguiente_paso: "Avísale que un asesor lo atenderá mañana." }) }
+        : { content: "{}" },
+    );
+
+    const t = await responder("Reclama por el producto", BRANCHES[1], "Los lentes que vendes no sirven");
+    // Decir que un asesor lo verá SIN llamar a la herramienta deja el reclamo sin avisar a nadie.
+    expect(h.executeTool.mock.calls.map((c) => c[0])).toContain("handoff_to_human");
+    expect(/frustrada|preocupada|molesta\b|frustrado|preocupado|molesto\b/i.test(t)).toBe(false);
+  }, 60_000);
+});

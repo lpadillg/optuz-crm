@@ -349,3 +349,18 @@ describe("un solo mensaje con opciones por turno", () => {
     expect(JSON.parse(r.content).enviado).toBe(false);
   });
 });
+
+describe("consultar una hora concreta", () => {
+  it("acepta «12:00» (una validación rota la rechazaba y el agente creía que no había cupo)", async () => {
+    const ctx = { leadId: "l1", conversationId: "c1", branchId: "b1", handedOff: false };
+    const r = await executeTool("get_availability", { date: "2026-09-23", hora: "12:00" }, ctx);
+    expect(r.content).not.toContain("Fecha inválida");
+    expect(r.content).not.toContain("Hora inválida");
+  });
+
+  it("una hora con formato raro se rechaza diciendo que es la HORA, no la fecha", async () => {
+    const ctx = { leadId: "l1", conversationId: "c1", branchId: "b1", handedOff: false };
+    const r = await executeTool("get_availability", { date: "2026-09-23", hora: "mediodía" }, ctx);
+    expect(r.content).toContain("Hora inválida");
+  });
+});

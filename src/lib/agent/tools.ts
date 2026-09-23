@@ -289,8 +289,12 @@ export async function executeTool(name: string, input: unknown, ctx: ToolContext
 
     case "get_availability": {
       if (!ctx.branchId) return await pedirSucursal(ctx);
-      const parsed = z.object({ date: z.iso.date(), franja: FRANJA.optional(), hora: z.string().regex(/^d{1,2}:d{2}$/).optional() }).safeParse(input);
-      if (!parsed.success) return fail("Fecha inválida; usa YYYY-MM-DD");
+      const parsed = z.object({ date: z.iso.date(), franja: FRANJA.optional(), hora: z.string().regex(/^\d{1,2}:\d{2}$/).optional() }).safeParse(input);
+      // El motivo exacto: un «fecha inválida» cuando lo que estaba mal era la hora manda al modelo por el camino equivocado.
+      if (!parsed.success) {
+        const campo = parsed.error.issues[0]?.path[0];
+        return fail(campo === "hora" ? "Hora inválida; usa HH:mm en 24 h (18:00)" : "Fecha inválida; usa YYYY-MM-DD");
+      }
       try {
         const slots = await getAvailableSlots(ctx.branchId, parsed.data.date, 30, parsed.data.franja);
         const libres = slots.map((s) => formatLimaTime(new Date(s)));

@@ -79,3 +79,11 @@ export function textoEn12h(texto: string): string {
   });
   return out;
 }
+
+/** WhatsApp usa *un* asterisco para negrita: el «**texto**» del modelo se vería literal. También sobran los ### de los títulos. */
+export function limpiaMarkdown(texto: string): string {
+  return texto
+    .replace(/\*\*([^*]+)\*\*/g, "*$1*")
+    .replace(/^#{1,6}\s+/gm, "")
+    .replace(/^\s*[-–]\s+/gm, "• ");
+}

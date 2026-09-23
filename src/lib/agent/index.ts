@@ -3,8 +3,9 @@ import { attentionInfo } from "@/lib/attention";
 import { env } from "@/lib/env";
 import { enqueue } from "@/lib/jobs";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { describeNowLima, textoEn12h } from "@/lib/time";
+import { describeNowLima, formatLima, limpiaMarkdown, textoEn12h } from "@/lib/time";
 import { humanPauseMs } from "@/lib/typing";
+import { findNextSlots } from "@/lib/appointments";
 import { sendBotOptions } from "@/lib/outbound";
 import { sendWhatsAppText } from "@/lib/whatsapp/client";
 import { toTurns } from "./history";
@@ -20,6 +21,9 @@ export interface AgentContext {
 }
 
 const HISTORY_LIMIT = 30;
+
+/** Fecha de hoy en Lima (YYYY-MM-DD), para consultar la agenda. */
+const limaHoy = () => new Date(Date.now() - 5 * 3_600_000).toISOString().slice(0, 10);
 
 /** Qué pasó en una corrida (se guarda en `agent_runs`). */
 interface RunResult {
@@ -198,7 +202,7 @@ async function respond(ctx: AgentContext): Promise<RunResult> {
     return { outcome: "reply", detail: "respondió con botones", stats };
   }
 
-  const text = textoEn12h(outcome.text.trim());
+  const text = limpiaMarkdown(textoEn12h(outcome.text.trim()));
   if (!text) return { outcome: "skipped", detail: "el modelo no escribió texto", stats };
 
   // Las tiendas van SIEMPRE como lista tocable, con su dirección debajo de cada una: el cliente ve dónde están y,
@@ -215,6 +219,24 @@ async function respond(ctx: AgentContext): Promise<RunResult> {
       return { outcome: "reply", detail: "tiendas enviadas como lista", stats };
     } catch (err) {
       console.error("[agent] no se pudo enviar la lista de tiendas; va como texto", err);
+    }
+  }
+
+  // Decir «no hay cupo» sin haber mirado la agenda le cuesta citas al negocio: pasó dos veces con horarios que
+  // SÍ estaban libres, porque el modelo repetía lo que él mismo había dicho antes. Si lo afirma sin consultar,
+  // se consulta aquí y se le ofrecen los horarios de verdad.
+  const afirmaSinCupo = /no (hay|tengo|tenemos|queda|quedan)\s+(m[aá]s\s+)?(disponibilidad|cupo|horarios?|espacios?)|no est[aá] disponible/i.test(text);
+  const consultoLaAgenda = (stats?.toolCalls ?? []).some((t) => t.name === "get_availability" || t.name === "next_available_slots");
+  if (afirmaSinCupo && !consultoLaAgenda && toolCtx.branchId && !toolCtx.handedOff) {
+    try {
+      const libres = await findNextSlots(toolCtx.branchId, limaHoy(), 3, 7);
+      if (libres.length >= 2) {
+        const opciones = libres.map((s) => formatLima(new Date(s)).replace(/ de w+/, ""));
+        await sendBotOptions(ctx.conversationId, "Estos son los próximos horarios libres. ¿Cuál te acomoda?", opciones, { kind: "options" });
+        return { outcome: "reply", detail: "dijo «sin cupo» sin consultar: se enviaron horarios reales", stats };
+      }
+    } catch (err) {
+      console.error("[agent] no se pudo comprobar la agenda tras un «no hay cupo»", err);
     }
   }
 

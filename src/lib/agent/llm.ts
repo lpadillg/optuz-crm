@@ -32,7 +32,7 @@ export interface RunStats {
   model: string;
   inputTokens: number;
   outputTokens: number;
-  toolCalls: { name: string; ms: number; ok: boolean }[];
+  toolCalls: { name: string; ms: number; ok: boolean; args?: string; result?: string }[];
 }
 
 export type Outcome = { kind: "reply"; text: string; stats?: RunStats } | { kind: "refusal"; stats?: RunStats };
@@ -100,7 +100,13 @@ export async function converse(instructions: string, messages: Turn[], toolCtx: 
         console.error("[agent] herramienta falló", call.name, err);
         result = { content: "Error interno de la herramienta. Deriva a un asesor con handoff_to_human.", isError: true };
       }
-      stats.toolCalls.push({ name: call.name, ms: Date.now() - started, ok: !result.isError });
+      stats.toolCalls.push({
+        name: call.name,
+        ms: Date.now() - started,
+        ok: !result.isError,
+        args: call.arguments?.slice(0, 300),
+        result: result.content.slice(0, 300),
+      });
       // La API no tiene un "is_error": el aviso va en el propio texto que lee el modelo.
       outputs.push({ type: "function_call_output", call_id: call.call_id, output: result.isError ? `ERROR: ${result.content}` : result.content });
     }
