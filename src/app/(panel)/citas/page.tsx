@@ -337,7 +337,7 @@ export default async function AppointmentsPage({ searchParams }: { searchParams:
                     ) : (
                       <>
                         <details className="mover">
-                          <summary>Mover</summary>
+                          <summary>Reagendar</summary>
                           <form action={reprogramarCita} className="mover-form">
                             <input type="hidden" name="id" value={a.id} />
                             <label>
@@ -360,7 +360,7 @@ export default async function AppointmentsPage({ searchParams }: { searchParams:
                               Avisarle por WhatsApp
                             </label>
                             <button type="submit" className="btn-sm">
-                              Mover cita
+                              Reagendar
                             </button>
                           </form>
                         </details>

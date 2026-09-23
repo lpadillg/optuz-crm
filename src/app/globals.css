@@ -1243,7 +1243,12 @@ a.state-dot:hover { transform: scale(1.12); }
 .grupo-dia.es-hoy .grupo-head { border-bottom-color: var(--brand); }
 .grupo-dia.es-hoy .grupo-head h2 { color: var(--brand); }
 
-.citas { display: grid; gap: 1px; background: var(--border); border: 1px solid var(--border); border-radius: var(--r-lg); overflow: hidden; }
+/* Sin `overflow: hidden`: el desplegable de «Mover» se sale de su fila y quedaba recortado. Las esquinas
+   redondeadas las ponen la primera y la última fila. */
+.citas { display: grid; gap: 1px; background: var(--border); border: 1px solid var(--border); border-radius: var(--r-lg); }
+.cita:first-child { border-radius: var(--r-lg) var(--r-lg) 0 0; }
+.cita:last-child { border-radius: 0 0 var(--r-lg) var(--r-lg); }
+.cita:only-child { border-radius: var(--r-lg); }
 .cita {
   display: grid; align-items: center; gap: 12px;
   grid-template-columns: 82px minmax(0, 1.4fr) minmax(0, 1fr) auto;
