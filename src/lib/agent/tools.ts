@@ -410,7 +410,7 @@ export async function executeTool(name: string, input: unknown, ctx: ToolContext
       const now = new Date().toISOString();
       const { data, error } = await db
         .from("promotions")
-        .select("id, titulo, descripcion, valid_to")
+        .select("id, titulo, descripcion, valid_to, branch_id")
         .eq("active", true)
         .lte("valid_from", now)
         .gte("valid_to", now)
@@ -422,7 +422,13 @@ export async function executeTool(name: string, input: unknown, ctx: ToolContext
           titulo: p.titulo,
           descripcion: p.descripcion,
           vigente_hasta: formatLima(new Date(p.valid_to)),
+          // Sin esto el modelo la atribuía a la tienda del cliente («en la sucursal de Huánuco tenemos…»), y
+          // eso hace pensar que en las demás no aplica: el cliente que iba a ir a otra se cae por el camino.
+          aplica_en: p.branch_id ? "solo esta sucursal" : "todas nuestras tiendas",
         })),
+        ...((data ?? []).some((p) => !p.branch_id) && {
+          nota: "Las que aplican en todas las tiendas NO se anuncian como de una sucursal concreta.",
+        }),
       });
     }
 
