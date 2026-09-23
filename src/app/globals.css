@@ -1292,7 +1292,8 @@ a.state-dot:hover { transform: scale(1.12); }
 .mover-form input[type="datetime-local"], .mover-form select { width: 100%; }
 .mover-form button { justify-self: start; }
 
-.filtro-sede { display: flex; gap: 6px; align-items: center; }
+/* Filtra al elegir: no hay botón que pulsar después. */
+.filtro-sede { width: auto; min-width: 180px; }
 
 @media (max-width: 860px) {
   /* En pantalla estrecha la fila se vuelve tarjeta: la hora arriba y las acciones al pie. */

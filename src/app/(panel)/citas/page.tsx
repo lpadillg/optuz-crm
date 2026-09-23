@@ -5,6 +5,7 @@ import { requireUser } from "@/lib/session";
 import { horaCorta } from "@/lib/time";
 import { APPOINTMENT_STATUSES, APPOINTMENT_STATUS_LABEL, type AppointmentStatus } from "@/lib/types";
 import { reprogramarCita, updateAppointmentStatus } from "../actions";
+import { FiltroSede } from "./filtro-sede";
 
 const hour = (iso: string) =>
   horaCorta(new Intl.DateTimeFormat("es-PE", { timeZone: "America/Lima", hour: "numeric", minute: "2-digit" }).format(new Date(iso)));
@@ -219,21 +220,7 @@ export default async function AppointmentsPage({ searchParams }: { searchParams:
           <Link href="/citas?ver=historial">Historial</Link>
         </div>
         <span className="spacer" />
-        {branches.length > 1 && (
-          <form className="filtro-sede">
-            <select name="sede" defaultValue={sede} aria-label="Sucursal">
-              <option value="">Todas las sucursales</option>
-              {branches.map((b) => (
-                <option key={b.id} value={b.nombre}>
-                  {b.nombre}
-                </option>
-              ))}
-            </select>
-            <button type="submit" className="ghost btn-sm">
-              Filtrar
-            </button>
-          </form>
-        )}
+        {branches.length > 1 && <FiltroSede branches={branches} sede={sede} />}
       </div>
 
       {/* Lo que hay que saber del día antes de mirar nada más. */}
