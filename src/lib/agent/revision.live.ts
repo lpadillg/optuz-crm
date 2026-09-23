@@ -307,3 +307,16 @@ describe("a nombre de quién va la cita (en vivo)", () => {
     expect(/apellido/i.test(t)).toBe(true);
   }, 60_000);
 });
+
+describe("orden de las preguntas al agendar (en vivo)", () => {
+  it("al pedir cita no pregunta el nombre todavía, ni dos cosas a la vez", async () => {
+    h.executeTool.mockClear();
+    h.executeTool.mockImplementation(async () => ({ content: "{}" }));
+
+    const t = await responder("Pide cita sin decir sucursal", null, "Buenass quiero una cita para hoy");
+    // El nombre es el último dato: nadie lo da antes de saber si hay hueco.
+    expect(/nombre completo|tu nombre|nombre y apellido/i.test(t)).toBe(false);
+    // Y una sola pregunta por mensaje: dos de golpe se contestan a medias.
+    expect((t.match(/\?/g) ?? []).length).toBeLessThanOrEqual(1);
+  }, 60_000);
+});
