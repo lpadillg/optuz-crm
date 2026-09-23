@@ -16,6 +16,10 @@ export default async function ConversationPage({ params }: { params: Promise<{ c
     .maybeSingle();
   if (!conv) notFound(); // no existe, o RLS no lo deja ver (otra sucursal)
 
+  // Abrirlo es leerlo. Se marca aquí, y no al responder, porque lo que hay que distinguir en la bandeja es
+  // lo que nadie ha visto todavía: un chat que alguien ya miró no debe seguir gritando.
+  await supabase.from("conversations").update({ last_read_at: new Date().toISOString() }).eq("id", conversationId);
+
   const lead = conv.leads as unknown as {
     id: string;
     nombre: string | null;

@@ -17,6 +17,8 @@ export interface ConversationItem {
   last_message_preview: string;
   /** Quién envió el último mensaje: si fue el cliente, el chat espera respuesta. */
   last_message_sender: "bot" | "humano" | "lead" | null;
+  /** Última vez que alguien del equipo abrió el chat. Si el cliente escribió después, está sin leer. */
+  last_read_at: string | null;
   leads: { nombre: string | null; phone: string | null; branches: { nombre: string } | null } | null;
   assignee: { nombre: string } | null;
 }
@@ -264,8 +266,14 @@ export function ConversationList({ items, userId }: { items: ConversationItem[];
           const pip = c.requires_human ? "wait" : c.bot_active ? "on" : "";
           // El cliente escribió lo último: el chat espera una respuesta.
           const waiting = c.last_message_sender === "lead";
+          // Y además nadie lo ha abierto desde entonces: eso es lo que hay que poder ver de un vistazo.
+          const sinLeer = waiting && (!c.last_read_at || c.last_message_at > c.last_read_at);
           return (
-            <Link key={c.id} href={`/inbox/${c.id}`} className={`conv${isOpen ? " active" : ""}${waiting ? " waiting" : ""}`}>
+            <Link
+              key={c.id}
+              href={`/inbox/${c.id}`}
+              className={`conv${isOpen ? " active" : ""}${waiting ? " waiting" : ""}${sinLeer ? " sin-leer" : ""}`}
+            >
               <span className="conv-avatar">
                 <Avatar name={c.leads?.nombre ?? null} />
                 <i className={`pip ${pip}`} title={c.requires_human ? "Espera a una persona" : c.bot_active ? "Bot activo" : "Bot pausado"} />
@@ -274,7 +282,7 @@ export function ConversationList({ items, userId }: { items: ConversationItem[];
                 <div className="conv-top">
                   <strong>
                     {name}
-                    {waiting && <i className="unread" title="Esperando respuesta" aria-label="Esperando respuesta" />}
+                    {sinLeer && <i className="unread" title="Sin leer" aria-label="Sin leer" />}
                   </strong>
                   <time className="muted">{when(c.last_message_at)}</time>
                 </div>

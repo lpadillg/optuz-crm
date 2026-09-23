@@ -699,9 +699,17 @@ td.cell-main { font-weight: 500; }
 .conv-top { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
 .conv-top strong { font-size: 13.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .conv-top time { font-size: 11px; flex: none; }
-.conv.waiting .conv-top strong { font-weight: 700; color: var(--text); }
+/* Espera respuesta, pero alguien ya lo miró: se nota, sin gritar. */
+.conv.waiting .conv-top strong { font-weight: 600; color: var(--text); }
 .conv.waiting .conv-preview { color: var(--text-2); }
-.unread { width: 7px; height: 7px; border-radius: 50%; background: var(--brand); display: inline-block; margin-left: 6px; vertical-align: middle; }
+/* Sin leer: el cliente escribió y nadie ha abierto el chat desde entonces. Es lo único que hay que poder
+   distinguir de un vistazo cuando la bandeja está llena, así que se marca por tres vías a la vez. */
+.conv.sin-leer { background: var(--brand-soft); }
+.conv.sin-leer .conv-top strong { font-weight: 700; }
+.conv.sin-leer .conv-preview { color: var(--text); font-weight: 500; }
+.conv.sin-leer::before { content: ""; position: absolute; left: 0; top: 10px; bottom: 10px; width: 3px; border-radius: 0 3px 3px 0; background: var(--brand); }
+.conv { position: relative; }
+.unread { width: 8px; height: 8px; border-radius: 50%; background: var(--brand); display: inline-block; margin-left: 6px; vertical-align: middle; flex: none; }
 .conv-preview { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 12.5px; margin-top: 1px; }
 .conv-tags { display: flex; gap: 5px; margin-top: 6px; flex-wrap: wrap; }
 .thread-pane { min-width: 0; height: 100%; }
@@ -778,6 +786,9 @@ td.cell-main { font-weight: 500; }
 .ticks { font-weight: 700; letter-spacing: -0.15em; }
 .ticks.read { color: #2563eb; }
 .ticks.failed { color: var(--err); letter-spacing: 0; font-weight: 600; }
+/* Entre pulsar Enter y que el servidor conteste: el mensaje ya se ve, pero se nota que aún va en camino. */
+.ticks.enviando { letter-spacing: 0; opacity: 0.6; }
+.msg.out:has(.ticks.enviando) .bubble { opacity: 0.72; }
 .handoff-summary { margin-top: 8px; padding: 8px 10px; background: var(--panel); border: 1px solid var(--warn-line); border-radius: var(--r); color: var(--text); white-space: pre-wrap; font-size: 13px; }
 .handoff-summary strong { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin-bottom: 2px; }
 .optout-banner { display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; }

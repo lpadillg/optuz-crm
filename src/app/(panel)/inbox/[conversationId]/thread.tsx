@@ -124,7 +124,12 @@ function AttachmentView({ messageId, attachments }: { messageId: string; attachm
 }
 
 /** ✓ enviado · ✓✓ entregado · ✓✓ azul leído · ⚠ no entregado. */
-function Ticks({ status }: { status: MessageRow["delivery_status"] }) {
+/**
+ * El estado de un mensaje nuestro, con los mismos símbolos que WhatsApp: un ✓ enviado, dos entregado y dos
+ * azules leído. `enViaje` es el instante entre pulsar Enter y que el servidor conteste.
+ */
+function Ticks({ status, enViaje }: { status: MessageRow["delivery_status"]; enViaje?: boolean }) {
+  if (enViaje) return <span className="ticks enviando" title="Enviando…" aria-label="Enviando"> ⏱</span>;
   if (status === "failed") return <span className="ticks failed" title="WhatsApp no pudo entregarlo"> ⚠ no entregado</span>;
   const label = status === "read" ? "Leído" : status === "delivered" ? "Entregado" : "Enviado";
   return (
@@ -147,7 +152,6 @@ export function Thread(p: Props) {
   const [optOut, setOptOut] = useState(p.lead.opt_out);
   const [text, setText] = useState("");
   const [note, setNote] = useState("");
-  const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [qrIndex, setQrIndex] = useState(0);
   const [panelOpen, setPanelOpen] = useState(false);
@@ -324,27 +328,56 @@ export function Thread(p: Props) {
     setQrIndex(0);
   }
 
+  /**
+   * Envía el mensaje y lo pinta EN EL ACTO, sin esperar a WhatsApp.
+   *
+   * Antes el cuadro no se vaciaba hasta que Meta confirmaba el envío —uno o dos segundos—, así que parecía
+   * que el Enter no había funcionado y la gente lo pulsaba otra vez. Ahora el mensaje aparece al momento,
+   * marcado como «enviando», y se sustituye por el de verdad cuando el servidor responde. Si falla, se dice y
+   * el texto vuelve al cuadro para no perder lo escrito.
+   */
   async function send(e: FormEvent) {
     e.preventDefault();
     const body = text.trim();
-    if (!body || sending) return;
-    setSending(true);
+    if (!body) return;
     setError(null);
-    const res = await fetch(`/api/inbox/conversations/${p.conversationId}/messages`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text: body }),
-    });
-    setSending(false);
-    if (!res.ok) {
-      const data = (await res.json().catch(() => ({}))) as { error?: string };
-      return setError(data.error ?? "No se pudo enviar el mensaje");
-    }
-    const { message, botPaused } = (await res.json()) as { message: MessageRow; botPaused?: boolean };
-    if (botPaused) setBotActive(false); // tomaste el control: el servidor pausó el bot
-    setMessages((prev) => (prev.some((m) => m.id === message.id) ? prev : [...prev, message]));
-    setRequiresHuman(false);
     setText("");
+
+    const provisional: MessageRow = {
+      id: `enviando-${crypto.randomUUID()}`,
+      direction: "out",
+      sender: "humano",
+      content: body,
+      attachments: [],
+      created_at: new Date().toISOString(),
+      author_id: null,
+      delivery_status: null,
+    };
+    setMessages((prev) => [...prev, provisional]);
+
+    try {
+      const res = await fetch(`/api/inbox/conversations/${p.conversationId}/messages`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: body }),
+      });
+      if (!res.ok) {
+        const data = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(data.error ?? "No se pudo enviar el mensaje");
+      }
+      const { message, botPaused } = (await res.json()) as { message: MessageRow; botPaused?: boolean };
+      if (botPaused) setBotActive(false); // tomaste el control: el servidor pausó el bot
+      // El de verdad sustituye al provisional; si Realtime ya lo trajo, el provisional solo desaparece.
+      setMessages((prev) => {
+        const sinProvisional = prev.filter((m) => m.id !== provisional.id);
+        return sinProvisional.some((m) => m.id === message.id) ? sinProvisional : [...sinProvisional, message];
+      });
+      setRequiresHuman(false);
+    } catch (err) {
+      setMessages((prev) => prev.filter((m) => m.id !== provisional.id));
+      setText((actual) => actual || body); // lo escrito no se pierde
+      setError(err instanceof Error ? err.message : "No se pudo enviar el mensaje");
+    }
   }
 
   async function addNote(e: FormEvent) {
@@ -474,7 +507,7 @@ export function Thread(p: Props) {
                         </div>
                         <span className="msg-meta">
                           {m.sender === "lead" ? "Recibido" : "Enviado"} {time(m.created_at)}
-                          {m.sender !== "lead" && <Ticks status={m.delivery_status ?? null} />}
+                          {m.sender !== "lead" && <Ticks status={m.delivery_status ?? null} enViaje={m.id.startsWith("enviando-")} />}
                           {m.sender === "bot" && (
                             <span className={`fb${m.feedback ? " voted" : ""}`}>
                               <button type="button" className={m.feedback === 1 ? "on" : ""} aria-pressed={m.feedback === 1} aria-label="Buena respuesta" title="Buena respuesta" onClick={() => rate(m, 1)}>
@@ -550,7 +583,7 @@ export function Thread(p: Props) {
                     ))}
                   </div>
                 )}
-                <button type="submit" className="send" aria-label="Enviar" title={ventanaCerrada ? "Pasaron más de 24 h desde su último mensaje" : "Enviar (Enter)"} disabled={sending || !text.trim() || ventanaCerrada}>
+                <button type="submit" className="send" aria-label="Enviar" title={ventanaCerrada ? "Pasaron más de 24 h desde su último mensaje" : "Enviar (Enter)"} disabled={!text.trim() || ventanaCerrada}>
                   <Icon name="enviar" size={17} />
                 </button>
                 </div>

@@ -9,7 +9,7 @@ export default async function InboxLayout({ children }: { children: ReactNode })
   const { data, error } = await supabase
     .from("conversations")
     .select(
-      "id, bot_active, requires_human, assigned_to, escalated_at, last_message_at, last_message_preview, last_message_sender, leads(nombre, phone, branches(nombre)), assignee:users!assigned_to(nombre)",
+      "id, bot_active, requires_human, assigned_to, escalated_at, last_message_at, last_message_preview, last_message_sender, last_read_at, leads(nombre, phone, branches(nombre)), assignee:users!assigned_to(nombre)",
     )
     .order("last_message_at", { ascending: false })
     .limit(200);
