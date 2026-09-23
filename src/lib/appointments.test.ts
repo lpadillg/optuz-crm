@@ -12,6 +12,8 @@ const h = vi.hoisted(() => {
     today: 0,
     /** Cuántas citas hay ya en el horario que se pide (el tope por defecto es 3). */
     enEsaHora: 0,
+    /** Otras citas próximas del MISMO cliente, para comprobar que no se le solapan. */
+    suyas: [] as { scheduled_at: string; duration_minutes: number; paciente: string | null; branches: { nombre: string } }[],
     inserted: [] as unknown[],
   };
   // Cliente de Supabase mínimo: solo lo que usa bookAppointment.
@@ -26,6 +28,7 @@ const h = vi.hoisted(() => {
       in: (k: string, v: unknown) => (q.filters.push([k, v]), b),
       gte: (k: string, v: unknown) => (q.filters.push([k, v]), b),
       lt: (k: string, v: unknown) => (q.filters.push([k, v]), b),
+      lte: (k: string, v: unknown) => (q.filters.push([k, v]), b),
       single: () => Promise.resolve(resolve(q)),
       maybeSingle: () => Promise.resolve(resolve(q)),
       // Sin .single(): la consulta devuelve una lista (así se lee la ocupación de un horario).
@@ -45,7 +48,9 @@ const h = vi.hoisted(() => {
         return { data: null, error: null, count: byStatus ? state.active : state.today };
       }
       if (lista) {
-        // Las citas que ya ocupan ese horario, todas a la misma hora que la pedida.
+        // Dos consultas distintas de citas: las del cliente (filtran por lead_id) y las de la sucursal.
+        if (q.filters.some(([k]) => k === "lead_id")) return { data: state.suyas, error: null };
+        // Las que ya ocupan ese horario, todas a la misma hora que la pedida.
         const at = nextMonday10().toISOString();
         return { data: Array.from({ length: state.enEsaHora }, () => ({ scheduled_at: at, google_event_id: null })), error: null };
       }
@@ -87,6 +92,7 @@ beforeEach(() => {
   h.state.today = 0;
   h.state.inserted = [];
   h.state.enEsaHora = 0;
+  h.state.suyas = [];
   h.listEvents.mockReset().mockResolvedValue([]);
   h.createCalendarEvent.mockReset().mockResolvedValue("ev-1");
   h.scheduleAppointmentJobs.mockReset();
@@ -163,5 +169,38 @@ describe("cuántas citas caben en el mismo horario", () => {
     const start = nextMonday10();
     h.listEvents.mockResolvedValue([{ id: "ajeno", start, end: new Date(start.getTime() + 30 * 60_000) }]);
     await expect(book()).rejects.toMatchObject({ code: "slot_taken" });
+  });
+});
+
+/**
+ * Un cliente puede agendar en varias sucursales —llevar a su madre a una tienda y a su hijo a otra es
+ * normal—, pero la misma persona no puede estar en dos sitios a la vez.
+ */
+describe("dos citas de la misma persona a la vez", () => {
+  const otraCita = (paciente: string | null, sucursal = "Huánuco") => ({
+    scheduled_at: nextMonday10().toISOString(),
+    duration_minutes: 30,
+    paciente,
+    branches: { nombre: sucursal },
+  });
+
+  it("no deja agendarle otra cita a la misma hora, aunque sea en otra sucursal", async () => {
+    h.state.suyas = [otraCita(null, "Tingo María")];
+    await expect(book()).rejects.toMatchObject({ code: "too_many_active" } satisfies Partial<BookingError>);
+  });
+
+  it("...y dice dónde tiene la otra, para poder resolverlo", async () => {
+    h.state.suyas = [otraCita(null, "Tingo María")];
+    await expect(book()).rejects.toThrow(/Tingo María/);
+  });
+
+  it("si la otra cita es para OTRA persona, sí puede coincidir", async () => {
+    h.state.suyas = [otraCita("Rosa Quispe")];
+    await expect(book()).resolves.toBeTruthy();
+  });
+
+  it("una cita suya a otra hora no estorba", async () => {
+    h.state.suyas = [{ ...otraCita(null), scheduled_at: new Date(nextMonday10().getTime() + 2 * 3_600_000).toISOString() }];
+    await expect(book()).resolves.toBeTruthy();
   });
 });

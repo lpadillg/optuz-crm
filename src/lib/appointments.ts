@@ -32,12 +32,42 @@ export class BookingError extends Error {
 }
 
 /**
- * Un cliente no puede llenar la agenda: se le permiten unas pocas citas próximas a la vez (para él y su familia)
- * y unas pocas creadas por día (freno a quien agenda y cancela en bucle). Se comprueba aquí, en el punto donde
- * se agenda, para que valga también si se agenda desde el panel o por otro camino.
+ * Los tres frenos al agendar: que una misma persona no acabe con dos citas a la vez, que un cliente no llene
+ * la agenda (se le permiten unas pocas citas próximas, para él y su familia) y que nadie agende y cancele en
+ * bucle (tope por día). Se comprueban aquí, en el punto donde se agenda, para que valgan también desde el
+ * panel o por cualquier otro camino.
+ *
+ * Agendar en varias sucursales SÍ se permite: es normal llevar a la madre a una tienda y al hijo a otra.
  */
-async function assertWithinLimits(leadId: string): Promise<void> {
+async function assertWithinLimits(leadId: string, startsAt: Date, durationMinutes: number, pacienteNombre?: string | null): Promise<void> {
   const db = createAdminClient();
+
+  // Nadie puede estar en dos sitios a la vez. Un cliente puede agendar en varias sucursales —para su madre en
+  // una y su hijo en otra—, pero la MISMA persona no puede tener dos citas que se pisen: sería un cupo tirado
+  // en una de las dos tiendas y un viaje que alguien no va a hacer.
+  const end = new Date(startsAt.getTime() + durationMinutes * 60_000);
+  const { data: suyas, error: overlapErr } = await db
+    .from("appointments")
+    .select("scheduled_at, duration_minutes, paciente, branches(nombre)")
+    .eq("lead_id", leadId)
+    .in("status", ["agendada", "confirmada"])
+    .gte("scheduled_at", new Date(startsAt.getTime() - 4 * 3600_000).toISOString())
+    .lte("scheduled_at", end.toISOString());
+  if (overlapErr) throw overlapErr;
+
+  const mismoPaciente = (p: string | null) => (p ?? "").trim().toLowerCase() === (pacienteNombre ?? "").trim().toLowerCase();
+  for (const otra of suyas ?? []) {
+    if (!mismoPaciente(otra.paciente as string | null)) continue; // es para otra persona: puede coincidir
+    const inicio = new Date(otra.scheduled_at as string);
+    const fin = new Date(inicio.getTime() + (((otra.duration_minutes as number) ?? 30) * 60_000));
+    if (startsAt < fin && end > inicio) {
+      const donde = (otra.branches as unknown as { nombre: string } | null)?.nombre;
+      throw new BookingError(
+        "too_many_active",
+        `Esa persona ya tiene una cita a esa misma hora${donde ? ` en ${donde}` : ""}. Hay que cancelar o mover esa antes de agendar otra.`,
+      );
+    }
+  }
 
   const { count: active, error } = await db
     .from("appointments")
@@ -238,7 +268,7 @@ export async function bookAppointment(input: BookInput) {
     throw new BookingError("outside_hours", "Fuera del horario de atención (lun–sáb 8:00–20:00, sin 13:00–14:00)");
   }
   const branch = await loadBranch(input.branchId);
-  await assertWithinLimits(input.leadId);
+  await assertWithinLimits(input.leadId, input.startsAt, duration, input.pacienteNombre);
   const promotion = input.promotionId ? await loadValidPromotion(input.promotionId, input.branchId) : null;
 
   const { data: lead, error: leadErr } = await db
