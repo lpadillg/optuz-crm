@@ -10,6 +10,7 @@ import { sendBotOptions } from "@/lib/outbound";
 import { sendWhatsAppText } from "@/lib/whatsapp/client";
 import { toTurns } from "./history";
 import { converse, type RunStats } from "./llm";
+import { conducirSucursal } from "./paso-sucursal";
 import { dynamicContext, staticSystemPrompt } from "./prompt";
 import type { ToolContext } from "./tools";
 
@@ -171,6 +172,29 @@ async function respond(ctx: AgentContext): Promise<RunResult> {
     .eq("activa", true)
     .order("created_at");
   if (knowledgeErr) throw knowledgeErr;
+
+  // ── El paso de la sucursal lo lleva el código, no el modelo ──
+  // Elegir tienda no tiene nada de creativo, y pedírselo por escrito al modelo obligaba a adivinar después,
+  // leyendo su texto, si lo había hecho. Si falta ese dato se pregunta aquí y el turno acaba: además de salir
+  // siempre igual, se ahorra la llamada al modelo.
+  const ultimoDelCliente = [...history].reverse().find((m) => m.direction === "in")?.content ?? "";
+  const pasoSucursal = await conducirSucursal({
+    conversationId: ctx.conversationId,
+    leadId: lead.id,
+    branchId: lead.branch_id,
+    branchNombre: lead.branches?.nombre ?? null,
+    texto: ultimoDelCliente as string,
+    tiendas: (branchRows ?? []).map((b) => ({ nombre: b.nombre as string, direccion: b.direccion as string })),
+  });
+  if (pasoSucursal.atendido) return { outcome: "reply", detail: pasoSucursal.detalle, stats: undefined };
+  // Pudo quedar elegida justo ahora: el resto del turno tiene que saberlo.
+  if (!toolCtx.branchId) {
+    const { data: fresco } = await db.from("leads").select("branch_id, branches(nombre)").eq("id", lead.id).maybeSingle();
+    if (fresco?.branch_id) {
+      toolCtx.branchId = fresco.branch_id as string;
+      lead.branches = (Array.isArray(fresco.branches) ? fresco.branches[0] : fresco.branches) as typeof lead.branches;
+    }
+  }
 
   // Parte estable primero, contexto variable al final: así el prefijo idéntico puede reutilizarse en la caché de prompts.
   const instructions = [

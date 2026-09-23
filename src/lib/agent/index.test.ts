@@ -57,6 +57,7 @@ const h = vi.hoisted(() => {
       order: () => b,
       limit: () => b,
       single: () => Promise.resolve(resolve(q)),
+      maybeSingle: () => Promise.resolve(resolve(q)),
       then: (ok: (v: unknown) => unknown, bad: (e: unknown) => unknown) => Promise.resolve(resolve(q)).then(ok, bad),
     };
     return b;
