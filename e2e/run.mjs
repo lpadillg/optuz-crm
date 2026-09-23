@@ -75,6 +75,7 @@ const check = (name, cond, extra = "") => {
 const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==", "base64");
 const mediaCalls = [], transcribeCalls = [], templateCalls = [], capiCalls = [];
 const llmCalls = [], summaryCalls = [], waCalls = [], waRejected = [], typingCalls = [];
+const readCalls = []; // acuses de lectura: alguien del equipo abrió el chat
 const tagOf = new Map(); // id de respuesta → ¿es el flujo «etiquetas e2e»?
 const flowOf = new Map(); // id de respuesta → ¿es el flujo «opciones e2e»?
 const stepOf = new Map(); // id de respuesta → paso del guion (para encadenar con previous_response_id)
@@ -148,9 +149,14 @@ const mock = http.createServer((req, res) => {
     }
     if (req.method === "POST" && req.url === `/v25.0/${PNID}/messages`) {
       const call = { path: req.url, auth: req.headers.authorization, body: JSON.parse(body) };
-      // El aviso de «escribiendo…» usa el mismo endpoint, pero NO es un mensaje: se guarda aparte para no descuadrar las cuentas de envíos.
+      // «Escribiendo…» y el acuse de lectura usan el mismo endpoint, pero NO son mensajes: se guardan aparte
+      // para no descuadrar las cuentas de envíos.
       if (call.body.typing_indicator) {
         typingCalls.push(call);
+        return json({ success: true });
+      }
+      if (call.body.status === "read") {
+        readCalls.push(call);
         return json({ success: true });
       }
       if (graphFail) {
@@ -424,6 +430,16 @@ const before = llmCalls.length;
 await post(payload("wamid.2", "Quiero una cita mañana"));
 await sleep(3500);
 check("con el bot pausado: guarda el mensaje pero el agente NO responde", (await q(db.from("messages").select("id").eq("wa_message_id", "wamid.2"))).length === 1 && llmCalls.length === before && waCalls.length === 2);
+
+// Abrir el chat pone las dos palomitas azules en el teléfono del cliente: alguien lo está mirando aunque el
+// bot esté apagado. Sin esto ve su mensaje entregado pero nunca leído, y vuelve a escribir «hola?».
+const envios0 = waCalls.length;
+const leidos0 = readCalls.length;
+await p.reload();
+await p.waitForSelector(".thread", { timeout: 30000 });
+const acuse = await waitFor(() => (readCalls.length > leidos0 ? readCalls.at(-1) : null), 15000);
+check("abrir el chat marca el mensaje del cliente como leído en su teléfono", acuse?.body.status === "read" && acuse.body.message_id === "wamid.2" && !acuse.body.typing_indicator, JSON.stringify(acuse?.body));
+check("...y ese acuse no cuenta como un mensaje enviado", waCalls.length === envios0);
 
 // Las notas viven en el panel, junto al chat: se leen mientras se sigue viendo la conversación.
 await p.locator(".cp-nota-form textarea").fill("Cliente prefiere la tarde");

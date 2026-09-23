@@ -1,6 +1,8 @@
+import { after } from "next/server";
 import { notFound } from "next/navigation";
 import { requireUser } from "@/lib/session";
 import { MESSAGE_PAGE, type AppointmentStatus, type LeadOrigin, type LeadStage, type MessageRow, type NoteRow } from "@/lib/types";
+import { showRead } from "@/lib/whatsapp/client";
 import { Thread } from "./thread";
 
 export default async function ConversationPage({ params }: { params: Promise<{ conversationId: string }> }) {
@@ -19,6 +21,22 @@ export default async function ConversationPage({ params }: { params: Promise<{ c
   // Abrirlo es leerlo. Se marca aquí, y no al responder, porque lo que hay que distinguir en la bandeja es
   // lo que nadie ha visto todavía: un chat que alguien ya miró no debe seguir gritando.
   await supabase.from("conversations").update({ last_read_at: new Date().toISOString() }).eq("id", conversationId);
+
+  // Y el cliente también tiene que verlo: sus dos palomitas se ponen azules. Sin esto ve su mensaje entregado
+  // pero nunca leído aunque alguien lo esté mirando, que es lo que le hace volver a escribir «hola?».
+  // Va en `after()` para que el acuse a Meta no retrase la carga del chat.
+  after(async () => {
+    const { data: ultimo } = await supabase
+      .from("messages")
+      .select("wa_message_id")
+      .eq("conversation_id", conversationId)
+      .eq("direction", "in")
+      .not("wa_message_id", "is", null)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    await showRead(ultimo?.wa_message_id as string | null);
+  });
 
   const lead = conv.leads as unknown as {
     id: string;

@@ -72,6 +72,36 @@ export async function sendTypingIndicator(waMessageId: string): Promise<void> {
   }
 }
 
+/**
+ * Marca como leído el mensaje del cliente: en su teléfono aparecen las dos palomitas azules.
+ *
+ * Es lo mismo que hace `sendTypingIndicator` pero sin el «escribiendo…»: sirve para cuando un asesor abre el
+ * chat y todavía no está redactando nada. Sin esto, el cliente ve su mensaje entregado pero no leído aunque
+ * alguien lo esté mirando, que es justo la señal que hace que vuelva a escribir «hola?».
+ */
+export async function markWhatsAppRead(waMessageId: string): Promise<void> {
+  const res = await fetch(`${env.graphBaseUrl}/${env.graphVersion}/${env.whatsappPhoneNumberId}/messages`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${env.whatsappAccessToken}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ messaging_product: "whatsapp", status: "read", message_id: waMessageId }),
+    signal: AbortSignal.timeout(8000),
+  });
+  if (!res.ok) {
+    const data = (await res.json().catch(() => ({}))) as { error?: { message?: string; code?: number } };
+    throw new WhatsAppApiError(`WhatsApp API ${res.status}: ${data.error?.code ?? "?"} ${data.error?.message ?? ""}`.trim(), res.status, data.error?.code);
+  }
+}
+
+/** Como el anterior, pero nunca lanza: el cliente no debe quedarse sin respuesta porque falle un acuse. */
+export async function showRead(waMessageId: string | null | undefined): Promise<void> {
+  if (!waMessageId) return;
+  try {
+    await markWhatsAppRead(waMessageId);
+  } catch (err) {
+    console.error("[whatsapp] no se pudo marcar como leído", err);
+  }
+}
+
 /** Como el anterior, pero nunca lanza: es un detalle de cortesía y jamás debe impedir que se responda. */
 export async function showTyping(waMessageId: string | null | undefined): Promise<void> {
   if (!waMessageId) return;

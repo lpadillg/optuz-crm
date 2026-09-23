@@ -181,6 +181,8 @@ export function Thread(p: Props) {
   const [loadingOlder, setLoadingOlder] = useState(false);
   // Alto del contenedor antes de anteponer mensajes viejos: sirve para no perder el punto de lectura.
   const keepScroll = useRef<number | null>(null);
+  /** Cuándo se avisó por última vez de que el asesor está escribiendo (para no mandar uno por tecla). */
+  const ultimoTyping = useRef(0);
 
   // En vivo: mensajes nuevos (del lead, del bot o de otro asesor) y cambios de estado de la conversación.
   useEffect(() => {
@@ -336,6 +338,19 @@ export function Thread(p: Props) {
    * marcado como «enviando», y se sustituye por el de verdad cuando el servidor responde. Si falla, se dice y
    * el texto vuelve al cuadro para no perder lo escrito.
    */
+  /**
+   * Muestra «escribiendo…» en el teléfono del cliente mientras el asesor redacta.
+   *
+   * WhatsApp lo mantiene unos 25 segundos y lo quita al llegar el mensaje, así que basta con avisar de vez en
+   * cuando: se manda como mucho uno cada 15 segundos para no gastar una llamada por tecla.
+   */
+  function avisarQueEscribo() {
+    const ahora = Date.now();
+    if (ahora - ultimoTyping.current < 15_000) return;
+    ultimoTyping.current = ahora;
+    void fetch(`/api/inbox/conversations/${p.conversationId}/typing`, { method: "POST" }).catch(() => {});
+  }
+
   async function send(e: FormEvent) {
     e.preventDefault();
     const body = text.trim();
@@ -542,7 +557,10 @@ export function Thread(p: Props) {
                 <div className="composer-pill">
                 <textarea
                   value={text}
-                  onChange={(e) => setText(e.target.value)}
+                  onChange={(e) => {
+                    setText(e.target.value);
+                    avisarQueEscribo();
+                  }}
                   placeholder={ventanaCerrada ? "WhatsApp no permite escribirle ahora…" : botActive ? "Escribe para tomar el control de este chat…" : "Escribe un mensaje…  (/ para respuestas rápidas)"}
                   rows={2}
                   onKeyDown={(e) => {
