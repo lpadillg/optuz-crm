@@ -87,3 +87,12 @@ export function limpiaMarkdown(texto: string): string {
     .replace(/^#{1,6}\s+/gm, "")
     .replace(/^\s*[-–]\s+/gm, "• ");
 }
+
+/**
+ * "mar 23, 3:00 pm": día y hora en el espacio de un botón de WhatsApp, que solo admite 20 caracteres.
+ * `formatLima` es más claro pero no cabe, y un botón cortado no se entiende.
+ */
+export function etiquetaBoton(instant: Date): string {
+  const dia = new Intl.DateTimeFormat("es-PE", { timeZone: TZ, weekday: "short", day: "numeric" }).format(instant).replace(".", "");
+  return `${dia}, ${formatLimaTime(instant)}`;
+}

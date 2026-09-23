@@ -136,7 +136,8 @@ describe("derivación automática cuando falla el calendario", () => {
   it("Google caído (error inesperado): también deriva y el cliente no queda esperando a nadie", async () => {
     h.findNextSlots.mockRejectedValueOnce(new Error("ECONNRESET"));
     const ctx = mkCtx({ branchId: "b-hco" });
-    const r = await executeTool("next_available_slots", {}, ctx);
+    // Con franja: sin ella la herramienta pregunta primero mañana o tarde y no llega a tocar el calendario.
+    const r = await executeTool("next_available_slots", { franja: "tarde" }, ctx);
     expect(ctx.handedOff).toBe(true);
     expect(writes("conversations")[0].payload).toMatchObject({ requires_human: true, handoff_reason: expect.stringContaining("Google Calendar") });
     expect(r.content).toContain("Ya derivé");

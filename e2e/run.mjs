@@ -7,7 +7,7 @@ import { createClient } from "@supabase/supabase-js";
 import { createHmac } from "node:crypto";
 import http from "node:http";
 import { spawn, execSync } from "node:child_process";
-import { readFileSync, mkdirSync } from "node:fs";
+import { readFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 const PROJECT = process.cwd().replace(/\\/g, "/");
@@ -221,6 +221,10 @@ const app = spawn("npx.cmd", ["next", "dev", "-p", "3113"], {
 let appLog = "";
 app.stdout.on("data", (d) => (appLog += d));
 app.stderr.on("data", (d) => (appLog += d));
+// El log entero en un archivo: cuando algo falla dentro de la app, las 25 «líneas útiles» que se imprimen
+// casi nunca traen la causa, y volver a correr la prueba entera cuesta doce minutos.
+const APP_LOG_FILE = `${SHOTS}app.log`;
+process.on("exit", () => { try { writeFileSync(APP_LOG_FILE, appLog); } catch {} });
 const ready = await waitFor(async () => (await fetch(`${BASE}/login`)).status === 200, 120000, 1000);
 if (!ready) { console.log("La app no arrancó:\n" + appLog.slice(-1500)); process.exit(1); }
 console.log("app lista\n");
@@ -243,7 +247,24 @@ const waMessage = (who, id, text, extra = {}) => ({
 const contactOf = (who) => ({ profile: { name: who.name }, ...(who.wa_id && { wa_id: who.wa_id }), user_id: who.user_id });
 const inbound = (who, id, text, { extra, pnid } = {}) => wrap({ contacts: [contactOf(who)], messages: [waMessage(who, id, text, extra)] }, pnid);
 const payload = (id, text) => inbound(carla, id, text, { extra: { referral: { source_url: "https://fb.me/x", source_id: "AD-HCO-1", source_type: "ad", ctwa_clid: "clid-1", headline: "Examen visual gratis" } } });
-const post = (body, sig = sign(body)) => fetch(`${BASE}/api/webhooks/whatsapp`, { method: "POST", body, headers: { "content-type": "application/json", ...(sig && { "x-hub-signature-256": sig }) } });
+/**
+ * Entrega de Meta al webhook.
+ *
+ * Tras responder, la app encola el trabajo del agente y confía en `after()` para empujarlo. En producción
+ * además hay un cron que llama a /api/jobs/run, pero aquí el ticker está apagado a propósito, así que ese
+ * `after()` era el único empujón — y en desarrollo no siempre llega a ejecutarse: la prueba fallaba una de
+ * cada dos veces por eso, no por el código. Se empuja la cola a mano, que es justo lo que hará el cron.
+ */
+const post = async (body, sig = sign(body)) => {
+  const res = await fetch(`${BASE}/api/webhooks/whatsapp`, { method: "POST", body, headers: { "content-type": "application/json", ...(sig && { "x-hub-signature-256": sig }) } });
+  void (async () => {
+    for (const ms of [700, 2500, 6000]) {
+      await sleep(ms);
+      await fetch(`${BASE}/api/jobs/run`, { method: "POST", headers: { "x-cron-secret": "e2e-cron" } }).catch(() => {});
+    }
+  })();
+  return res;
+};
 
 // ═════ 1. Webhook → ingesta → agente → OpenAI → WhatsApp ═════
 console.log("── Webhook y agente");
@@ -349,7 +370,7 @@ check("sin sesión, /citas redirige a /login", anon.url().includes("/login"), an
 const hco = await browser.newContext({ viewport: { width: 1280, height: 800 } });
 const p = await login(hco, "huanuco@optuz.local");
 await p.waitForSelector(".conv", { timeout: 30000 });
-await p.getByRole("button", { name: "Todas", exact: true }).click();
+await p.locator(".chip-btn", { hasText: "Todas" }).first().click();
 check("vendedor Huánuco ve la conversación de Carla", (await p.locator(".conv").first().innerText()).includes("Carla"));
 await p.locator(".conv").first().click();
 await p.waitForSelector(".bubble", { timeout: 30000 });
@@ -531,7 +552,7 @@ console.log("\n── Móvil");
 const mob = await browser.newContext({ viewport: { width: 390, height: 800 }, isMobile: true });
 const pm = await login(mob, "huanuco@optuz.local");
 await pm.waitForSelector(".conv", { timeout: 30000 });
-await pm.getByRole("button", { name: "Todas", exact: true }).click();
+await pm.locator(".chip-btn", { hasText: "Todas" }).first().click();
 check("móvil: /inbox muestra la lista y oculta el hilo", (await pm.locator(".conv-list").isVisible()) && !(await pm.locator(".thread-pane").isVisible()));
 await pm.screenshot({ path: `${SHOTS}06-movil-lista.png` });
 await pm.locator(".conv").first().click();
@@ -605,7 +626,7 @@ check("un estado viejo que llega tarde (delivered tras read) NO retrocede", (awa
 const failed = wrap({ statuses: [{ id: "wamid.OUT1", status: "failed", recipient_id: "51987654321", errors: [{ code: 131047, title: "Re-engagement message" }] }] });
 await post(failed);
 const cf = (await q(db.from("conversations").select("requires_human, handoff_reason").eq("id", conv.id)))[0];
-check("estado `failed`: la conversación queda 'Requiere humano' con el motivo (131047)", cf.requires_human === true && cf.handoff_reason.includes("131047"), JSON.stringify(cf));
+check("estado `failed`: la conversación queda 'Requiere humano' con el motivo explicado (131047 = fuera de las 24 h)", cf.requires_human === true && /24 h|plantilla/i.test(cf.handoff_reason), JSON.stringify(cf));
 const failedUnknown = wrap({ statuses: [{ id: "wamid.NOEXISTE", status: "failed", recipient_id: "51900000099", errors: [{ code: 131026, title: "Message undeliverable" }] }] });
 check("estado `failed` de un mensaje desconocido: 200 sin error", (await post(failedUnknown)).status === 200);
 
@@ -626,7 +647,7 @@ await pa.goto(`${BASE}/dashboard`);
 check("/dashboard: muestra el resumen con métricas", await pa.getByText("Conversaciones nuevas", { exact: true }).isVisible({ timeout: 30000 }).catch(() => false) && await pa.getByRole("heading", { name: "Embudo" }).isVisible());
 await pa.screenshot({ path: `${SHOTS}20-dashboard.png` });
 
-// Tablero de leads: las cuatro etapas hacia la cita, más «Requiere humano» delante
+// Tablero de leads: las etapas hacia la cita y la de quien no vino, más «Requiere humano» delante
 // Parte de un estado conocido: las pruebas de entregas fallidas dejaron a Carla esperando a una persona.
 await q(db.from("conversations").update({ requires_human: false, handoff_reason: null }).eq("id", conv.id));
 await pa.goto(`${BASE}/pipeline`);
@@ -635,7 +656,7 @@ await pa.waitForLoadState("networkidle");
 const carlaCard = () => pa.locator(".lead-card", { hasText: "Carla" });
 const stageOf = async () => (await q(db.from("leads").select("stage").eq("id", lead.id)))[0].stage;
 const colTitles = await pa.locator(".column > header strong").allInnerTexts();
-check("tablero: «Requiere humano» y las cuatro etapas, en ese orden", JSON.stringify(colTitles) === JSON.stringify(["Requiere humano", "Nuevo", "En seguimiento", "Sin respuesta", "Cita agendada"]), JSON.stringify(colTitles));
+check("tablero: «Requiere humano» y las etapas, en ese orden", JSON.stringify(colTitles) === JSON.stringify(["Requiere humano", "Nuevo", "En seguimiento", "Sin respuesta", "Cita agendada", "No asistió"]), JSON.stringify(colTitles));
 check("tablero: quien ya recibió respuesta está en «En seguimiento»", await pa.locator(".column[data-status='seguimiento'] .lead-card", { hasText: "Carla" }).isVisible());
 await carlaCard().locator("select").selectOption("cita_agendada");
 check("tablero: mover con el selector persiste la etapa", !!(await waitFor(async () => (await stageOf()) === "cita_agendada", 10000)));
@@ -752,11 +773,12 @@ await p.goto(`${BASE}/inbox`);
 await p.waitForSelector(".conv", { timeout: 30000 });
 await p.getByRole("button", { name: "Mías", exact: true }).click();
 check("inbox: filtro «Mías» muestra la conversación asignada", await p.locator(".conv", { hasText: "Carla" }).isVisible());
-await p.getByRole("button", { name: "Sin asignar", exact: true }).click();
-check("inbox: los filtros se suman («Mías» + «Sin asignar» no puede dar nada)", (await p.locator(".conv").count()) === 0 && (await p.locator(".conv-filters .chip-btn.on").count()) === 2);
+// Carla es la única conversación y está asignada: «Sin asignar» no dejaría ninguna, así que sale
+// deshabilitado. Un filtro que lleva a una lista vacía no se puede pulsar, ni solo ni sumado a otro.
+check("inbox: un filtro que dejaría la lista vacía sale deshabilitado (sumado a «Mías»)", await p.getByRole("button", { name: "Sin asignar", exact: true }).isDisabled());
 await p.getByRole("button", { name: "Mías", exact: true }).click();
-check("inbox: quitar «Mías» deja solo «Sin asignar», y Carla sigue fuera", (await p.locator(".conv", { hasText: "Carla" }).count()) === 0 && (await p.locator(".conv-filters .chip-btn.on").count()) === 1);
-await p.getByRole("button", { name: "Todas", exact: true }).click();
+check("inbox: ...y sigue deshabilitado al quitar «Mías», porque no hay ningún chat sin asignar", await p.getByRole("button", { name: "Sin asignar", exact: true }).isDisabled());
+await p.locator(".chip-btn", { hasText: "Todas" }).first().click();
 await p.getByPlaceholder("Buscar chat…").fill("zzzz");
 check("inbox: la búsqueda sin coincidencias muestra «Sin resultados»", await p.getByText("Sin resultados").isVisible());
 await q(db.from("conversations").update({ bot_active: true, assigned_to: null }).eq("id", conv.id));

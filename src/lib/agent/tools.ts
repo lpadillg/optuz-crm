@@ -6,7 +6,7 @@ import { attentionInfo } from "@/lib/attention";
 import { grantPromotions, revokeAll } from "@/lib/consent";
 import { sendBotOptions } from "@/lib/outbound";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { addDays, formatLima, formatLimaTime, limaDateString, parseLimaLocal } from "@/lib/time";
+import { addDays, etiquetaBoton, formatLima, formatLimaTime, limaDateString, parseLimaLocal } from "@/lib/time";
 import { pareceNombreReal } from "@/lib/nombre";
 import { humanPauseMs } from "@/lib/typing";
 
@@ -453,10 +453,25 @@ export async function executeTool(name: string, input: unknown, ctx: ToolContext
       const today = limaDateString(new Date());
       const from = parsed.data.from_date && parsed.data.from_date >= today ? parsed.data.from_date : today;
       try {
+        // Igual que en get_availability: primero mañana o tarde, y con botones. Soltarle una lista de horas a
+        // alguien que no ha dicho ni qué parte del día quiere es la forma más rápida de que no conteste.
+        if (!parsed.data.franja) {
+          const enviado = await ofrecerBotones(ctx, "¿Prefieres tu cita en la mañana o en la tarde?", ["En la mañana", "En la tarde"]);
+          if (enviado) {
+            return json({
+              preguntado: true,
+              siguiente_paso: "Ya le pregunté con botones si prefiere mañana o tarde. NO escribas más en este turno; cuando responda, vuelve a llamarme con «franja».",
+            });
+          }
+          return json({ requiere_franja: true, nota: "Pregúntale si prefiere «En la mañana» o «En la tarde» y vuelve a llamarme con «franja». No le des horarios todavía." });
+        }
+
         const slots = await findNextSlots(ctx.branchId, from, 3, 7, 30, parsed.data.franja ?? undefined);
+        const enviado = slots.length > 0 && (await ofrecerBotones(ctx, "Estos son los horarios más próximos, ¿cuál te queda mejor?", slots.map((s) => etiquetaBoton(new Date(s)))));
         return json({
           opciones: slots.map((s) => ({ starts_at: toLimaLocal(new Date(s)), cuando: formatLima(new Date(s)) })),
-          ...(slots.length === 0 && { nota: `Sin cupo entre ${from} y ${addDays(from, 6)}. Deriva a un asesor.` }),
+          ...(enviado && { enviado_con_botones: true, siguiente_paso: "Ya le mandé los horarios como botones. NO los repitas por escrito; espera a que elija." }),
+          ...(slots.length === 0 && { nota: `Sin cupo en la ${parsed.data.franja} entre ${from} y ${addDays(from, 6)}. Prueba la otra franja antes de derivar.` }),
         });
       } catch (err) {
         return await calendarError(err, ctx);
