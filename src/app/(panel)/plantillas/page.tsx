@@ -57,7 +57,7 @@ export default async function TemplatesPage({ searchParams }: { searchParams: Pr
       {ok && <p className="banner ok">{ok}</p>}
       {configured && reminder?.status !== "APPROVED" && !err && !ok && (
         <p className="banner warn">
-          <strong>Sin plantilla de recordatorio aprobada:</strong> si un recordatorio toca fuera de las 24 horas, no se podrá enviar y el chat quedará como «Requiere humano».
+          <strong>Sin plantilla de recordatorio aprobada:</strong> si un recordatorio toca fuera de las 24 horas, no se podrá enviar y el chat quedará como «Requiere Humano».
           {!reminder ? " Crea la plantilla con el botón de arriba." : " Cuando Meta la apruebe, pulsa «Sincronizar con Meta»."}
         </p>
       )}

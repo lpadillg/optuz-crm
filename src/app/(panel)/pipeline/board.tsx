@@ -15,7 +15,7 @@ export type { BoardLead };
 const fmt = (iso: string) =>
   horaCorta(new Intl.DateTimeFormat("es-PE", { timeZone: "America/Lima", day: "2-digit", month: "2-digit", hour: "numeric", minute: "2-digit" }).format(new Date(iso)));
 
-const COLUMNA_LABEL = (c: Columna) => (c === HUMANO ? "Requiere humano" : LEAD_STAGE_LABEL[c]);
+const COLUMNA_LABEL = (c: Columna) => (c === HUMANO ? "Requiere Humano" : LEAD_STAGE_LABEL[c]);
 const COLUMNA_HINT = (c: Columna) =>
   c === HUMANO
     ? "Chats que esperan a una persona. Al atenderlos vuelven a la etapa que les toque."

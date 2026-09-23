@@ -7,10 +7,10 @@ export type LeadStage = (typeof LEAD_STAGES)[number];
 
 export const LEAD_STAGE_LABEL: Record<LeadStage, string> = {
   nuevo: "Nuevo",
-  seguimiento: "En seguimiento",
-  sin_respuesta: "Sin respuesta",
-  cita_agendada: "Cita agendada",
-  no_asistio: "No asistió",
+  seguimiento: "En Seguimiento",
+  sin_respuesta: "Sin Respuesta",
+  cita_agendada: "Cita Agendada",
+  no_asistio: "No Asistió",
 };
 
 export const LEAD_STAGE_HINT: Record<LeadStage, string> = {

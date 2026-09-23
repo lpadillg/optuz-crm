@@ -22,7 +22,7 @@ export default async function PanelLayout({ children }: { children: ReactNode })
   const items: NavItem[] = [
     { href: "/dashboard", label: "Resumen", icon: "dashboard" },
     { href: "/inbox", label: "Inbox", icon: "inbox", badge: waiting ?? 0 },
-    { href: "/pipeline", label: "Tablero de leads", icon: "pipeline" },
+    { href: "/pipeline", label: "Tablero Leads", icon: "pipeline" },
     { href: "/leads", label: "Contactos", icon: "contactos" },
     { href: "/citas", label: "Citas", icon: "citas" },
     { href: "/promociones", label: "Promociones", icon: "promociones" },

@@ -17,9 +17,9 @@ export const COLUMNAS: Columna[] = [HUMANO, ...LEAD_STAGES];
  *  - «No asistió» sale de anotar en Citas que el cliente no vino.
  */
 export const MOTIVO_NO_MOVIBLE: Partial<Record<Columna, string>> = {
-  cita_agendada: "«Cita agendada» significa que el cliente tiene una cita. Agéndasela desde el chat o desde Citas y la tarjeta llega sola.",
-  sin_respuesta: "«Sin respuesta» se pone solo cuando el cliente lleva sin contestar, y desde ahí se archiva a los 30 días. Si quieres quitarlo del tablero, archívalo con el botón de la tarjeta.",
-  no_asistio: "«No asistió» se marca en Citas, al anotar si el cliente vino. Desde aquí no se puede poner.",
+  cita_agendada: "«Cita Agendada» significa que el cliente tiene una cita. Agéndasela desde el chat o desde Citas y la tarjeta llega sola.",
+  sin_respuesta: "«Sin Respuesta» se pone solo cuando el cliente lleva sin contestar, y desde ahí se archiva a los 30 días. Si quieres quitarlo del tablero, archívalo con el botón de la tarjeta.",
+  no_asistio: "«No Asistió» se marca en Citas, al anotar si el cliente vino. Desde aquí no se puede poner.",
 };
 
 /** Cuántas tarjetas trae cada columna de entrada. El resto se pide con «ver más». */

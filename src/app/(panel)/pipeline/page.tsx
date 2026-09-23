@@ -3,7 +3,7 @@ import { Board } from "./board";
 import { CAMPOS_LEAD, COLUMNAS, HUMANO, ORDEN, POR_COLUMNA, toBoardLead, type BoardLead, type Columna, type LeadRow } from "./orden";
 
 export default async function PipelinePage() {
-  // «Tablero de leads»: la misma gente que Contactos, ordenada por etapa.
+  // «Tablero Leads»: la misma gente que Contactos, ordenada por etapa.
   const { supabase, profile } = await requireUser();
 
   // Quién espera a una persona manda sobre su etapa, así que esos leads no deben salir además en su columna.
@@ -54,7 +54,7 @@ export default async function PipelinePage() {
 
   return (
     <div className="page page-wide">
-      <h1>Tablero de leads</h1>
+      <h1>Tablero Leads</h1>
       <Board initial={inicial} totales={totales} branches={branches ?? []} userId={profile.id} />
     </div>
   );

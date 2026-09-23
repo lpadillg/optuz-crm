@@ -389,8 +389,8 @@ check("barra lateral expandida por defecto: se ve el nombre de cada sección", a
 await p.getByRole("button", { name: "Contraer barra lateral" }).click();
 await sleep(500); // la barra anima su ancho (0,18 s)
 check("contraer: la barra sigue visible pero sin nombres (solo íconos)", await p.locator(".sidebar").isVisible() && !(await navLabel().isVisible()) && (await p.locator(".sidebar").boundingBox()).width < 80);
-await p.locator(".side-item a[aria-label='Tablero de leads']").hover();
-check("contraída: al pasar el cursor por un ícono aparece su nombre", await p.locator(".side-tip", { hasText: "Tablero de leads" }).isVisible({ timeout: 3000 }).catch(() => false));
+await p.locator(".side-item a[aria-label='Tablero Leads']").hover();
+check("contraída: al pasar el cursor por un ícono aparece su nombre", await p.locator(".side-tip", { hasText: "Tablero Leads" }).isVisible({ timeout: 3000 }).catch(() => false));
 await p.screenshot({ path: `${SHOTS}23-barra-contraida.png` });
 await p.locator(".content").hover();
 check("...y el aviso desaparece al salir", !(await p.locator(".side-tip").isVisible({ timeout: 1500 }).catch(() => false)));
@@ -647,7 +647,7 @@ await pa.goto(`${BASE}/dashboard`);
 check("/dashboard: muestra el resumen con métricas", await pa.getByText("Conversaciones nuevas", { exact: true }).isVisible({ timeout: 30000 }).catch(() => false) && await pa.getByRole("heading", { name: "Embudo" }).isVisible());
 await pa.screenshot({ path: `${SHOTS}20-dashboard.png` });
 
-// Tablero de leads: las etapas hacia la cita y la de quien no vino, más «Requiere humano» delante
+// Tablero Leads: las etapas hacia la cita y la de quien no vino, más «Requiere humano» delante
 // Parte de un estado conocido: las pruebas de entregas fallidas dejaron a Carla esperando a una persona.
 await q(db.from("conversations").update({ requires_human: false, handoff_reason: null }).eq("id", conv.id));
 await pa.goto(`${BASE}/pipeline`);
@@ -656,12 +656,12 @@ await pa.waitForLoadState("networkidle");
 const carlaCard = () => pa.locator(".lead-card", { hasText: "Carla" });
 const stageOf = async () => (await q(db.from("leads").select("stage").eq("id", lead.id)))[0].stage;
 const colTitles = await pa.locator(".column > header strong").allInnerTexts();
-check("tablero: «Requiere humano» y las etapas, en ese orden", JSON.stringify(colTitles) === JSON.stringify(["Requiere humano", "Nuevo", "En seguimiento", "Sin respuesta", "Cita agendada", "No asistió"]), JSON.stringify(colTitles));
-check("tablero: quien ya recibió respuesta está en «En seguimiento»", await pa.locator(".column[data-status='seguimiento'] .lead-card", { hasText: "Carla" }).isVisible());
+check("tablero: «Requiere humano» y las etapas, en ese orden", JSON.stringify(colTitles) === JSON.stringify(["Requiere Humano", "Nuevo", "En Seguimiento", "Sin Respuesta", "Cita Agendada", "No Asistió"]), JSON.stringify(colTitles));
+check("tablero: quien ya recibió respuesta está en «En Seguimiento»", await pa.locator(".column[data-status='seguimiento'] .lead-card", { hasText: "Carla" }).isVisible());
 // Las columnas que salen de un hecho no se pueden poner a mano: ni en el selector ni arrastrando.
 const opciones = await carlaCard().locator("select option").allInnerTexts();
 check("tablero: el selector no ofrece las columnas que salen de un hecho (cita, sin respuesta, no asistió)",
-  !opciones.includes("Cita agendada") && !opciones.includes("Sin respuesta") && !opciones.includes("No asistió"), JSON.stringify(opciones));
+  !opciones.includes("Cita Agendada") && !opciones.includes("Sin Respuesta") && !opciones.includes("No Asistió"), JSON.stringify(opciones));
 
 // El arrastre HTML5 solo funciona con la página hidratada: se espera a que se estabilice.
 await pa.waitForLoadState("networkidle");
