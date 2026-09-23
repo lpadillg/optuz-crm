@@ -397,6 +397,17 @@ describe("elegir sucursal siempre con opciones tocables", () => {
 });
 
 describe("preguntar la sucursal", () => {
+  it("el saludo del modelo no se pierde al mandar la lista", async () => {
+    // Al sustituir su texto por la lista, a un cliente que escribe por primera vez le llegaban cinco tiendas
+    // sin un «hola» delante.
+    h.create.mockResolvedValueOnce(textReply("¡Hola! Con gusto te ayudo. ¿En qué sucursal quieres tu cita?"));
+    await runAgent(ctx);
+
+    const [, texto] = h.sendOptions.mock.calls[0];
+    expect(texto).toContain("¡Hola! Con gusto te ayudo");
+    expect(texto).toContain("¿Cuál sucursal te queda más cerca?");
+  }, 20_000);
+
   it("si el modelo solo saluda, la lista llega igualmente con la pregunta", async () => {
     h.create.mockResolvedValueOnce(textReply("¡Buenas tardes, Luis!\n\nHuánuco — Jr. 28 de Julio 1131\nTingo María — Av. Tito Jaime 343"));
     await runAgent(ctx);

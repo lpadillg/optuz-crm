@@ -222,7 +222,17 @@ async function respond(ctx: AgentContext): Promise<RunResult> {
   const preguntaLaSucursal = !nombraVariasTiendas && pideLaSucursal.test(text);
   if (!toolCtx.handedOff && preguntaLaSucursal && tiendas.length >= 2) {
     try {
-      await sendBotOptions(ctx.conversationId, "¿Cuál sucursal te queda más cerca?", tiendas, { kind: "options" });
+      // Se conserva lo que el modelo escribió ANTES de pedir la sucursal —el saludo, o la respuesta a lo que
+      // preguntó el cliente— y se descarta esa petición, que es lo que sustituye la lista. Al sustituir el
+      // texto entero, a quien escribía por primera vez le caían cinco tiendas sin un «hola» delante.
+      // Solo si delante quedan frases COMPLETAS: cortar a media frase («Entiendo, pero necesito que me»)
+      // se lee peor que no poner nada.
+      const corte = text.search(pideLaSucursal);
+      const previo = corte > 0 ? text.slice(0, corte) : "";
+      const finFrase = Math.max(previo.lastIndexOf("."), previo.lastIndexOf("!"), previo.lastIndexOf("?"));
+      const saludo = finFrase > 0 ? previo.slice(0, finFrase + 1).trim() : "";
+      const cabecera = saludo ? `${saludo}\n\n¿Cuál sucursal te queda más cerca?` : "¿Cuál sucursal te queda más cerca?";
+      await sendBotOptions(ctx.conversationId, cabecera, tiendas, { kind: "options" });
       return { outcome: "reply", detail: "sucursal preguntada con la lista de tiendas", stats };
     } catch (err) {
       console.error("[agent] no se pudo enviar la lista de tiendas; va como texto", err);
