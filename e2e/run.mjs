@@ -658,21 +658,28 @@ const stageOf = async () => (await q(db.from("leads").select("stage").eq("id", l
 const colTitles = await pa.locator(".column > header strong").allInnerTexts();
 check("tablero: «Requiere humano» y las etapas, en ese orden", JSON.stringify(colTitles) === JSON.stringify(["Requiere humano", "Nuevo", "En seguimiento", "Sin respuesta", "Cita agendada", "No asistió"]), JSON.stringify(colTitles));
 check("tablero: quien ya recibió respuesta está en «En seguimiento»", await pa.locator(".column[data-status='seguimiento'] .lead-card", { hasText: "Carla" }).isVisible());
-await carlaCard().locator("select").selectOption("cita_agendada");
-check("tablero: mover con el selector persiste la etapa", !!(await waitFor(async () => (await stageOf()) === "cita_agendada", 10000)));
-// El arrastre HTML5 solo funciona con la página hidratada: se espera a que se estabilice y se reintenta una vez.
+// Las columnas que salen de un hecho no se pueden poner a mano: ni en el selector ni arrastrando.
+const opciones = await carlaCard().locator("select option").allInnerTexts();
+check("tablero: el selector no ofrece las columnas que salen de un hecho (cita, sin respuesta, no asistió)",
+  !opciones.includes("Cita agendada") && !opciones.includes("Sin respuesta") && !opciones.includes("No asistió"), JSON.stringify(opciones));
+
+// El arrastre HTML5 solo funciona con la página hidratada: se espera a que se estabilice.
 await pa.waitForLoadState("networkidle");
-const dragged = async () => !!(await waitFor(async () => (await stageOf()) === "sin_respuesta", 6000));
 await carlaCard().dragTo(pa.locator(".column[data-status='sin_respuesta']"));
+check("tablero: arrastrar a «Sin respuesta» no mueve nada y explica por qué",
+  await pa.locator(".error", { hasText: "se archiva" }).isVisible({ timeout: 5000 }).catch(() => false) && (await stageOf()) === "seguimiento");
+
+const dragged = async () => !!(await waitFor(async () => (await stageOf()) === "nuevo", 6000));
+await carlaCard().dragTo(pa.locator(".column[data-status='nuevo']"));
 let movedByDrag = await dragged();
-if (!movedByDrag) { await carlaCard().dragTo(pa.locator(".column[data-status='sin_respuesta']")); movedByDrag = await dragged(); }
-check("tablero: arrastrar la tarjeta a otra columna persiste la etapa", movedByDrag);
+if (!movedByDrag) { await carlaCard().dragTo(pa.locator(".column[data-status='nuevo']")); movedByDrag = await dragged(); }
+check("tablero: arrastrar a una columna que sí se pone a mano persiste la etapa", movedByDrag);
 
 // «Requiere humano» manda sobre la etapa y, al sacarla de ahí, se da por atendida
 await carlaCard().locator("select").selectOption("humano");
 const reqConv = await waitFor(async () => { const c = (await q(db.from("conversations").select("requires_human, bot_active").eq("lead_id", lead.id)))[0]; return c.requires_human ? c : null; }, 10000);
 check("tablero: pasar a «Requiere humano» avisa a una persona y pausa el bot", reqConv?.requires_human === true && reqConv.bot_active === false, JSON.stringify(reqConv));
-check("...la tarjeta sale en esa columna y no en su etapa, que se conserva", await pa.locator(".column[data-status='humano'] .lead-card", { hasText: "Carla" }).isVisible() && (await stageOf()) === "sin_respuesta");
+check("...la tarjeta sale en esa columna y no en su etapa, que se conserva", await pa.locator(".column[data-status='humano'] .lead-card", { hasText: "Carla" }).isVisible() && (await stageOf()) === "nuevo");
 await carlaCard().locator("select").selectOption("seguimiento");
 // Al sacarla hay que devolver también el bot: si no, el chat queda sin bot (se apagó al pedir persona) y
 // sin el aviso de que alguien debe atenderlo, o sea sin nadie que conteste y sin que el tablero lo diga.

@@ -5,6 +5,23 @@ export const HUMANO = "humano" as const;
 export type Columna = LeadStage | typeof HUMANO;
 export const COLUMNAS: Columna[] = [HUMANO, ...LEAD_STAGES];
 
+/**
+ * A qué columnas se puede mover una tarjeta a mano, y por qué no a las demás.
+ *
+ * Las etapas se deducen de hechos, así que ponerlas a mano solo tiene sentido donde el hecho es un juicio de
+ * quien atiende. En las otras tres, mover la tarjeta miente o hace daño:
+ *  - «Cita agendada» sale de tener una cita. Arrastrar ahí a alguien sin cita hace que el tablero diga una
+ *    cosa y la agenda otra.
+ *  - «Sin respuesta» envejece: a los ARCHIVE_AFTER_DAYS días el lead sale solo del tablero. Mover ahí a
+ *    alguien vivo para quitárselo de encima acaba archivando a un cliente que estaba contestando.
+ *  - «No asistió» sale de anotar en Citas que el cliente no vino.
+ */
+export const MOTIVO_NO_MOVIBLE: Partial<Record<Columna, string>> = {
+  cita_agendada: "«Cita agendada» significa que el cliente tiene una cita. Agéndasela desde el chat o desde Citas y la tarjeta llega sola.",
+  sin_respuesta: "«Sin respuesta» se pone solo cuando el cliente lleva sin contestar, y desde ahí se archiva a los 30 días. Si quieres quitarlo del tablero, archívalo con el botón de la tarjeta.",
+  no_asistio: "«No asistió» se marca en Citas, al anotar si el cliente vino. Desde aquí no se puede poner.",
+};
+
 /** Cuántas tarjetas trae cada columna de entrada. El resto se pide con «ver más». */
 export const POR_COLUMNA = 100;
 

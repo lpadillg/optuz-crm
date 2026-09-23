@@ -8,7 +8,7 @@ import { horaCorta } from "@/lib/time";
 import { archiveLead } from "@/app/(panel)/crm-actions";
 import { escribirANoAsistio } from "@/app/(panel)/actions";
 import { LEAD_STAGE_HINT, LEAD_STAGE_LABEL, LEAD_ORIGIN_LABEL, MANUAL_ARCHIVE_REASONS, ARCHIVE_REASON_LABEL, type LeadOrigin, type LeadStage } from "@/lib/types";
-import { CAMPOS_LEAD, COLUMNAS, ESPERA_DESDE, HUMANO, ORDEN, POR_COLUMNA, toBoardLead, type BoardLead, type Columna, type LeadRow } from "./orden";
+import { CAMPOS_LEAD, COLUMNAS, ESPERA_DESDE, HUMANO, MOTIVO_NO_MOVIBLE, ORDEN, POR_COLUMNA, toBoardLead, type BoardLead, type Columna, type LeadRow } from "./orden";
 
 export type { BoardLead };
 
@@ -105,10 +105,9 @@ export function Board({
       return;
     }
 
-    // «No asistió» sale de haber marcado la cita en Citas, no de arrastrar una tarjeta: si se pudiera poner
-    // a mano, la columna dejaría de significar lo que dice.
-    if (destino === "no_asistio") {
-      setError("«No asistió» se marca en Citas, al anotar si el cliente vino. Desde aquí no se puede poner.");
+    // Hay columnas que no se ponen a mano porque salen de un hecho (ver MOTIVO_NO_MOVIBLE).
+    if (MOTIVO_NO_MOVIBLE[destino]) {
+      setError(MOTIVO_NO_MOVIBLE[destino]!);
       return;
     }
 
@@ -360,7 +359,7 @@ export function Board({
                         onChange={(e) => move(l.id, e.target.value as Columna)}
                         aria-label="Mover a"
                       >
-                        {COLUMNAS.filter((s) => s !== "no_asistio" || l.stage === "no_asistio").map((s) => (
+                        {COLUMNAS.filter((s) => !MOTIVO_NO_MOVIBLE[s] || l.stage === s).map((s) => (
                           <option key={s} value={s}>
                             {COLUMNA_LABEL(s)}
                           </option>
