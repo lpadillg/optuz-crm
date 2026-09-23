@@ -8,7 +8,10 @@ import { createPromotion, togglePromotion, updatePromotion } from "../actions";
 const fmt = (iso: string) =>
   new Intl.DateTimeFormat("es-PE", { timeZone: "America/Lima", dateStyle: "medium" }).format(new Date(iso));
 
-export default async function PromotionsPage() {
+export default async function PromotionsPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
+  const sp = await searchParams;
+  const ok = typeof sp.ok === "string" ? sp.ok : null;
+  const err = typeof sp.error === "string" ? sp.error : null;
   const { supabase, profile } = await requireUser();
   const isAdmin = profile.role === "admin";
 
@@ -39,6 +42,9 @@ export default async function PromotionsPage() {
 
   return (
     <div className="page">
+      {/* Sin esto, guardar una promoción no decía nada: el diálogo se quedaba abierto igual y parecía roto. */}
+      {ok && <p className="banner ok">{ok}</p>}
+      {err && <p className="banner warn">{err}</p>}
       <div className="row-head">
         <h1 className="page-title">Promociones</h1>
         <span className="muted">

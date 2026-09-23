@@ -163,8 +163,9 @@ export async function createPromotion(formData: FormData) {
     valid_from: from.toISOString(),
     valid_to: to.toISOString(),
   });
-  if (error) throw error;
+  if (error) backTo("/promociones", "error", `No se pudo crear: ${error.message}`);
   revalidatePath("/promociones");
+  backTo("/promociones", "ok", `Promoción «${input.titulo}» creada, desactivada hasta que la revises`);
 }
 
 /** Corregir una promoción ya creada (antes había que desactivarla y volver a crearla). */
@@ -185,7 +186,7 @@ export async function updatePromotion(formData: FormData) {
   const to = parseLimaLocal(input.valid_to);
   if (!from || !to || to <= from) throw new Error("Fechas de vigencia inválidas");
 
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from("promotions")
     .update({
       branch_id: input.branch_id === "all" ? null : input.branch_id,
@@ -194,9 +195,14 @@ export async function updatePromotion(formData: FormData) {
       valid_from: from.toISOString(),
       valid_to: to.toISOString(),
     })
-    .eq("id", input.id);
-  if (error) throw error;
+    .eq("id", input.id)
+    .select("id");
+  if (error) backTo("/promociones", "error", `No se pudo guardar: ${error.message}`);
+  // Sin `.select()` esto no se notaba: un UPDATE que no alcanza ninguna fila no da error, así que la pantalla
+  // se quedaba igual y parecía que el botón no hacía nada.
+  if (!data?.length) backTo("/promociones", "error", "No se guardó: esta promoción ya no existe o tu usuario no puede editarla.");
   revalidatePath("/promociones");
+  backTo("/promociones", "ok", "Promoción actualizada");
 }
 
 export async function togglePromotion(formData: FormData) {
@@ -204,9 +210,11 @@ export async function togglePromotion(formData: FormData) {
   const { id, active } = z
     .object({ id: z.uuid(), active: z.enum(["true", "false"]) })
     .parse({ id: formData.get("id"), active: formData.get("active") });
-  const { error } = await supabase.from("promotions").update({ active: active === "true" }).eq("id", id);
-  if (error) throw error;
+  const { data, error } = await supabase.from("promotions").update({ active: active === "true" }).eq("id", id).select("id");
+  if (error) backTo("/promociones", "error", `No se pudo cambiar: ${error.message}`);
+  if (!data?.length) backTo("/promociones", "error", "No se pudo cambiar: esta promoción ya no existe o tu usuario no puede editarla.");
   revalidatePath("/promociones");
+  backTo("/promociones", "ok", active === "true" ? "Promoción activada: el agente ya puede ofrecerla" : "Promoción desactivada");
 }
 
 // ── Sucursales (solo admin). El agente lee nombre y dirección de aquí en cada conversación. ──
