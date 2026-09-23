@@ -1233,45 +1233,74 @@ a.state-dot:hover { transform: scale(1.12); }
 @media (hover: none) { .lead-card select.move { opacity: 1; position: static; max-width: none; width: 100%; } }
 
 /* ── Citas ─────────────────────────────────────────────────────────────── */
-.day-group { margin-bottom: 22px; }
-.day-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 10px; }
-.day-head h2::first-letter { text-transform: uppercase; }
-.appt-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px; }
-.appt {
-  background: var(--panel); border: 1px solid var(--border); border-radius: var(--r-lg);
-  padding: 14px 16px; box-shadow: var(--shadow-xs);
-  display: flex; flex-direction: column; gap: 10px;
-  border-left: 3px solid var(--brand);
+/* ── Citas: la agenda ──────────────────────────────────────────────────── */
+/* Una cita es una fila de agenda, no una tarjeta suelta: la hora manda a la izquierda y todo lo demás se
+   alinea en columnas, para poder recorrer el día de un vistazo sin leer cada recuadro por separado. */
+.grupo-dia { margin-bottom: 26px; }
+.grupo-head {
+  display: flex; align-items: baseline; gap: 10px; margin-bottom: 8px;
+  padding-bottom: 6px; border-bottom: 1px solid var(--border);
 }
-.appt.past { border-left-color: var(--border-strong); opacity: 0.85; }
-/* Ya pasó y nadie anotó si el cliente vino: pide una acción, no se confunde con la agenda. */
-.appt.pending { border-left-color: var(--warn); background: var(--warn-bg); }
-.appt.pending .appt-when { font-weight: 600; font-size: 14px; }
-.appt-ask { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.appt-ask > span { font-weight: 600; font-size: 13px; }
-.appt-ask form { display: inline-flex; }
-.appt-time { font-size: 19px; font-weight: 700; letter-spacing: -0.02em; }
-.appt-top { display: flex; align-items: center; gap: 12px; }
-.appt form { display: flex; gap: 8px; align-items: center; }
-.appt form select { flex: 1; width: auto; }
+.grupo-head h2 { font-size: 16px; margin: 0; }
+.grupo-head h2::first-letter { text-transform: uppercase; }
+/* El día de hoy es el que se mira cien veces: se marca con la línea de la marca. */
+.grupo-dia.es-hoy .grupo-head { border-bottom-color: var(--brand); }
+.grupo-dia.es-hoy .grupo-head h2 { color: var(--brand); }
 
-/* Acciones de una cita: el estado siempre a la vista, mover plegado para no competir con él. */
-.appt-actions { display: flex; flex-direction: column; gap: 8px; }
-.appt-actions > form { display: flex; gap: 8px; align-items: center; }
+.citas { display: grid; gap: 1px; background: var(--border); border: 1px solid var(--border); border-radius: var(--r-lg); overflow: hidden; }
+.cita {
+  display: grid; align-items: center; gap: 12px;
+  grid-template-columns: 82px minmax(0, 1.4fr) minmax(0, 1fr) auto;
+  background: var(--panel); padding: 12px 14px;
+}
+.cita:hover { background: var(--panel-2); }
+.cita.past { opacity: 0.72; }
+/* Empieza en menos de media hora: es la que hay que tener preparada. */
+.cita.ahora { background: var(--brand-soft); }
+.cita.ahora:hover { background: var(--brand-soft); }
+
+.cita-cuando { display: flex; flex-direction: column; gap: 2px; }
+.cita-cuando strong { font-size: 17px; font-weight: 700; letter-spacing: -0.02em; white-space: nowrap; }
+.cita-cuando .muted { font-size: 12px; }
+.cita-quien { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.cita-quien strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cita-tags { display: flex; flex-wrap: wrap; gap: 6px; }
+.cita-acciones { display: flex; align-items: center; gap: 6px; justify-content: flex-end; flex-wrap: wrap; }
+.cita-acciones form { display: inline-flex; }
+
+/* Las que ya pasaron y nadie anotó si el cliente vino: piden una acción, no son agenda. */
+.grupo-dia.pendientes .citas { border-color: var(--warn); }
+.cita.pendiente { background: var(--warn-bg); }
+.cita.pendiente:hover { background: var(--warn-bg); }
+
+/* «Mover» va plegado: es raro y no debe competir con marcar si vino. */
+.mover { position: relative; }
 .mover > summary {
   cursor: pointer; font-size: 13px; font-weight: 600; color: var(--brand);
-  list-style: none; padding: 4px 0; width: fit-content;
+  list-style: none; padding: 4px 8px; width: fit-content; border-radius: var(--r-md);
 }
+.mover > summary:hover { background: var(--brand-soft); }
 .mover > summary::-webkit-details-marker { display: none; }
 .mover > summary::before { content: "↔ "; }
-.mover[open] > summary { margin-bottom: 8px; }
 .mover-form {
-  display: grid !important; gap: 10px;
-  background: var(--panel-2); border: 1px solid var(--border); border-radius: var(--r-md); padding: 12px;
+  display: grid; gap: 10px; width: 280px;
+  background: var(--panel); border: 1px solid var(--border); border-radius: var(--r-md);
+  padding: 12px; box-shadow: var(--shadow-sm);
+  position: absolute; right: 0; top: calc(100% + 4px); z-index: 20;
 }
 .mover-form label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; font-weight: 600; }
 .mover-form input[type="datetime-local"], .mover-form select { width: 100%; }
 .mover-form button { justify-self: start; }
+
+.filtro-sede { display: flex; gap: 6px; align-items: center; }
+
+@media (max-width: 860px) {
+  /* En pantalla estrecha la fila se vuelve tarjeta: la hora arriba y las acciones al pie. */
+  .cita { grid-template-columns: 70px minmax(0, 1fr); row-gap: 8px; }
+  .cita-tags, .cita-acciones { grid-column: 1 / -1; }
+  .cita-acciones { justify-content: flex-start; }
+  .mover-form { position: static; width: 100%; }
+}
 
 /* ── Promociones ───────────────────────────────────────────────────────── */
 .promo-title { font-weight: 600; }
@@ -1505,7 +1534,6 @@ label.switch { flex-direction: row; align-items: center; gap: 12px; font-weight:
   table { min-width: 0; }
   /* Columnas que no aportan en una pantalla angosta. */
   .hide-sm { display: none; }
-  .appt-list { grid-template-columns: 1fr; }
 }
 
 @media (prefers-reduced-motion: reduce) {

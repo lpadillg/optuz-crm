@@ -29,6 +29,14 @@ function pastLabel(iso: string) {
   return `El ${d} a las ${when}`;
 }
 
+/** "hoy", "ayer" o "lun 22": el día de una cita que ya pasó, sin repetir la hora que va al lado. */
+function diaCorto(iso: string) {
+  const day = limaDay(new Date(iso));
+  if (day === limaDay(new Date())) return "hoy";
+  if (day === limaDay(new Date(Date.now() - 86_400_000))) return "ayer";
+  return new Intl.DateTimeFormat("es-PE", { timeZone: "America/Lima", weekday: "short", day: "numeric" }).format(new Date(iso)).replace(".", "");
+}
+
 /** "YYYY-MM-DDTHH:mm" en hora de Lima, que es lo que espera un <input type="datetime-local">. */
 const localInput = (iso: string) => {
   const d = new Date(iso);
@@ -57,6 +65,7 @@ interface Row {
 export default async function AppointmentsPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const sp = await searchParams;
   const historial = sp.ver === "historial";
+  const sede = typeof sp.sede === "string" ? sp.sede : "";
   const { supabase } = await requireUser();
 
   // La agenda mira 30 días atrás (lo que falta marcar); el historial, los últimos 90 días.
@@ -73,7 +82,9 @@ export default async function AppointmentsPage({ searchParams }: { searchParams:
   const { data: branchRows } = await supabase.from("branches").select("id, nombre").order("nombre");
   const branches = (branchRows ?? []) as { id: string; nombre: string }[];
 
-  const rows = (data ?? []) as unknown as Row[];
+  // El filtro se aplica sobre lo ya cargado: son como mucho 300 citas de un rango corto.
+  const todas = (data ?? []) as unknown as Row[];
+  const rows = sede ? todas.filter((a) => a.branches?.nombre === sede) : todas;
   const now = Date.now();
   const startOfToday = new Date(`${limaDay(new Date())}T00:00:00-05:00`).getTime();
   const passed = (a: Row) => new Date(a.scheduled_at).getTime() < now;
@@ -90,13 +101,22 @@ export default async function AppointmentsPage({ searchParams }: { searchParams:
   const cancelledRows = fromToday.filter((a) => a.status === "cancelada");
   const cancelled = cancelledRows.length;
 
-  const days: { key: string; label: string; items: Row[] }[] = [];
+  const days: { key: string; label: string; esHoy: boolean; items: Row[] }[] = [];
+  const claveHoy = limaDay(new Date());
   for (const a of agenda) {
     const key = limaDay(new Date(a.scheduled_at));
     const last = days.at(-1);
     if (last?.key === key) last.items.push(a);
-    else days.push({ key, label: dayLabel(a.scheduled_at), items: [a] });
+    else days.push({ key, label: dayLabel(a.scheduled_at), esHoy: key === claveHoy, items: [a] });
   }
+
+  // Las cuatro cifras de la cabecera: lo que hay que saber del día sin leer la lista entera.
+  const hoy = agenda.filter((a) => limaDay(new Date(a.scheduled_at)) === claveHoy);
+  const sinConfirmar = agenda.filter((a) => a.status === "agendada" && new Date(a.scheduled_at).getTime() > now).length;
+  const estaSemana = agenda.filter((a) => {
+    const t = new Date(a.scheduled_at).getTime();
+    return t > now && t <= now + 7 * DAY_MS;
+  }).length;
 
   // Historial: lo que ya ocurrió, de lo más reciente a lo más antiguo, con el porcentaje de asistencia.
   const past = rows
@@ -198,58 +218,76 @@ export default async function AppointmentsPage({ searchParams }: { searchParams:
           <span className="active">Agenda</span>
           <Link href="/citas?ver=historial">Historial</Link>
         </div>
+        <span className="spacer" />
+        {branches.length > 1 && (
+          <form className="filtro-sede">
+            <select name="sede" defaultValue={sede} aria-label="Sucursal">
+              <option value="">Todas las sucursales</option>
+              {branches.map((b) => (
+                <option key={b.id} value={b.nombre}>
+                  {b.nombre}
+                </option>
+              ))}
+            </select>
+            <button type="submit" className="ghost btn-sm">
+              Filtrar
+            </button>
+          </form>
+        )}
       </div>
-      <p className="page-intro">
-        Examen visual gratuito. Arriba, las que ya pasaron y falta anotar si el cliente vino: eso alimenta el resumen y el
-        seguimiento. Debajo, la agenda de hoy en adelante.
-      </p>
+
+      {/* Lo que hay que saber del día antes de mirar nada más. */}
+      <div className="kpis compact">
+        <div className="kpi">
+          <span>
+            <span className="kpi-value">{hoy.length}</span>
+            <span className="kpi-label" style={{ display: "block" }}>Citas hoy</span>
+          </span>
+        </div>
+        <div className={`kpi${sinConfirmar > 0 ? " warn" : ""}`}>
+          <span>
+            <span className="kpi-value">{sinConfirmar}</span>
+            <span className="kpi-label" style={{ display: "block" }}>Sin confirmar</span>
+          </span>
+        </div>
+        <div className="kpi">
+          <span>
+            <span className="kpi-value">{estaSemana}</span>
+            <span className="kpi-label" style={{ display: "block" }}>Próximos 7 días</span>
+          </span>
+        </div>
+        <div className={`kpi${pending.length > 0 ? " warn" : ""}`}>
+          <span>
+            <span className="kpi-value">{pending.length}</span>
+            <span className="kpi-label" style={{ display: "block" }}>Falta anotar si vinieron</span>
+          </span>
+        </div>
+      </div>
 
       {pending.length > 0 && (
-        <section className="day-group">
-          <div className="day-head">
-            <h2>Pendientes de marcar</h2>
-            <span className="tag warn">
-              {pending.length} cita{pending.length === 1 ? "" : "s"} ya {pending.length === 1 ? "pasó" : "pasaron"}
-            </span>
+        <section className="grupo-dia pendientes">
+          <div className="grupo-head">
+            <h2>Falta anotar si vinieron</h2>
+            <span className="tag warn">{pending.length}</span>
+            <span className="spacer" />
+            <span className="muted hide-sm">Sin esto, el resumen y el seguimiento van ciegos</span>
           </div>
-          <div className="appt-list">
+          <div className="citas">
             {pending.map((a) => (
-              <article key={a.id} className="appt pending">
-                <div className="appt-top">
-                  <Avatar name={a.leads?.nombre} />
-                  <div style={{ minWidth: 0 }}>
-                    <strong>{a.leads?.nombre ?? "Sin nombre"}</strong>
-                    <div className="cell-sub">{a.leads?.phone ?? "sin número visible"}</div>
-                  </div>
+              <article key={a.id} className="cita pendiente">
+                <div className="cita-cuando">
+                  <strong>{hour(a.scheduled_at)}</strong>
+                  <span className="muted">{diaCorto(a.scheduled_at)}</span>
                 </div>
-                <div className="appt-when">{pastLabel(a.scheduled_at)}</div>
-                <div className="inline">
+                <Persona a={a} />
+                <div className="cita-tags">
                   <span className="tag">{a.branches?.nombre}</span>
                   {a.promotions?.titulo && <span className="tag ok">{a.promotions.titulo}</span>}
                 </div>
-                <div className="appt-ask">
-                  <span>¿Vino?</span>
-                  <form action={updateAppointmentStatus}>
-                    <input type="hidden" name="id" value={a.id} />
-                    <input type="hidden" name="status" value="atendida" />
-                    <button type="submit" className="btn-sm">
-                      Sí, atendida
-                    </button>
-                  </form>
-                  <form action={updateAppointmentStatus}>
-                    <input type="hidden" name="id" value={a.id} />
-                    <input type="hidden" name="status" value="no_show" />
-                    <button type="submit" className="ghost btn-sm">
-                      No asistió
-                    </button>
-                  </form>
-                  <form action={updateAppointmentStatus}>
-                    <input type="hidden" name="id" value={a.id} />
-                    <input type="hidden" name="status" value="cancelada" />
-                    <button type="submit" className="ghost btn-sm" title="Se canceló y nadie lo anotó: también libera el hueco en Google Calendar">
-                      Se canceló
-                    </button>
-                  </form>
+                <div className="cita-acciones">
+                  <Marcar id={a.id} status="atendida" clase="btn-sm" texto="Vino" />
+                  <Marcar id={a.id} status="no_show" clase="ghost btn-sm" texto="No vino" />
+                  <Marcar id={a.id} status="cancelada" clase="ghost btn-sm" texto="Se canceló" titulo="Se canceló y nadie lo anotó: libera el hueco en Google Calendar" />
                 </div>
               </article>
             ))}
@@ -272,77 +310,80 @@ export default async function AppointmentsPage({ searchParams }: { searchParams:
       )}
 
       {days.map((d) => (
-        <section key={d.key} className="day-group">
-          <div className="day-head">
+        <section key={d.key} className={`grupo-dia${d.esHoy ? " es-hoy" : ""}`}>
+          <div className="grupo-head">
             <h2>{d.label}</h2>
             <span className="muted">
               {d.items.length} cita{d.items.length === 1 ? "" : "s"}
             </span>
           </div>
-          <div className="appt-list">
-            {d.items.map((a) => (
-              <article key={a.id} className={`appt${passed(a) ? " past" : ""}`}>
-                <div className="appt-top">
-                  <span className="appt-time">{hour(a.scheduled_at)}</span>
-                  <Avatar name={a.leads?.nombre} />
-                  <div style={{ minWidth: 0 }}>
-                    <strong>{a.leads?.nombre ?? "Sin nombre"}</strong>
-                    <div className="cell-sub">{a.leads?.phone ?? "sin número visible"}</div>
+          <div className="citas">
+            {d.items.map((a) => {
+              const yaPaso = passed(a);
+              const enCurso = !yaPaso && new Date(a.scheduled_at).getTime() - now < 30 * 60_000;
+              return (
+                <article key={a.id} className={`cita${yaPaso ? " past" : ""}${enCurso ? " ahora" : ""}`}>
+                  <div className="cita-cuando">
+                    <strong>{hour(a.scheduled_at)}</strong>
+                    {enCurso && <span className="tag warn">ahora</span>}
                   </div>
-                </div>
-                <div className="inline">
-                  <span className="tag">{a.branches?.nombre}</span>
-                  {/* Quien viene no siempre es quien escribe: una madre agenda para su hija. */}
-                  {a.paciente && a.paciente !== a.leads?.nombre && <span className="tag">Atiende a {a.paciente}</span>}
-                  {a.promotions?.titulo && <span className="tag ok">{a.promotions.titulo}</span>}
-                </div>
-                <div className="appt-actions">
-                  <form action={updateAppointmentStatus}>
-                    <input type="hidden" name="id" value={a.id} />
-                    <select name="status" defaultValue={a.status} aria-label={`Estado de la cita de ${a.leads?.nombre ?? "el cliente"}`}>
-                      {APPOINTMENT_STATUSES.map((s) => (
-                        <option key={s} value={s}>
-                          {APPOINTMENT_STATUS_LABEL[s]}
-                        </option>
-                      ))}
-                    </select>
-                    <button type="submit" className="ghost btn-sm">
-                      Guardar
-                    </button>
-                  </form>
-                  {!passed(a) && a.status !== "cancelada" && (
-                    <details className="mover">
-                      <summary>Mover</summary>
-                      <form action={reprogramarCita} className="mover-form">
-                        <input type="hidden" name="id" value={a.id} />
-                        <label>
-                          Nueva fecha y hora
-                          <input type="datetime-local" name="starts_at" defaultValue={localInput(a.scheduled_at)} step={1800} required />
-                        </label>
-                        <label>
-                          Sucursal
-                          <select name="branch_id" defaultValue="">
-                            <option value="">La misma ({a.branches?.nombre})</option>
-                            {branches.map((b) => (
-                              <option key={b.id} value={b.id}>
-                                {b.nombre}
-                              </option>
-                            ))}
-                          </select>
-                        </label>
-                        <label className="check">
-                          <input type="checkbox" name="avisar" value="1" defaultChecked />
-                          Avisarle por WhatsApp
-                        </label>
-                        <button type="submit" className="btn-sm">
-                          Mover cita
-                        </button>
-                      </form>
-                    </details>
-                  )}
-                </div>
-              </article>
-            ))}
+                  <Persona a={a} />
+                  <div className="cita-tags">
+                    <span className="tag">{a.branches?.nombre}</span>
+                    {a.status === "confirmada" ? (
+                      <span className="tag ok" title="El cliente respondió al recordatorio">
+                        Confirmada
+                      </span>
+                    ) : (
+                      <span className="tag" title="Aún no ha confirmado su asistencia">
+                        Sin confirmar
+                      </span>
+                    )}
+                    {a.promotions?.titulo && <span className="tag ok">{a.promotions.titulo}</span>}
+                  </div>
+                  <div className="cita-acciones">
+                    {yaPaso ? (
+                      <>
+                        <Marcar id={a.id} status="atendida" clase="btn-sm" texto="Vino" />
+                        <Marcar id={a.id} status="no_show" clase="ghost btn-sm" texto="No vino" />
+                      </>
+                    ) : (
+                      <>
+                        <details className="mover">
+                          <summary>Mover</summary>
+                          <form action={reprogramarCita} className="mover-form">
+                            <input type="hidden" name="id" value={a.id} />
+                            <label>
+                              Nueva fecha y hora
+                              <input type="datetime-local" name="starts_at" defaultValue={localInput(a.scheduled_at)} step={1800} required />
+                            </label>
+                            <label>
+                              Sucursal
+                              <select name="branch_id" defaultValue="">
+                                <option value="">La misma ({a.branches?.nombre})</option>
+                                {branches.map((b) => (
+                                  <option key={b.id} value={b.id}>
+                                    {b.nombre}
+                                  </option>
+                                ))}
+                              </select>
+                            </label>
+                            <label className="check">
+                              <input type="checkbox" name="avisar" value="1" defaultChecked />
+                              Avisarle por WhatsApp
+                            </label>
+                            <button type="submit" className="btn-sm">
+                              Mover cita
+                            </button>
+                          </form>
+                        </details>
+                        <Marcar id={a.id} status="cancelada" clase="ghost btn-sm" texto="Cancelar" titulo="Libera el hueco, también en Google Calendar" />
+                      </>
+                    )}
+                  </div>
+                </article>
+              );
+            })}
           </div>
         </section>
       ))}
@@ -362,5 +403,32 @@ export default async function AppointmentsPage({ searchParams }: { searchParams:
         </details>
       )}
     </div>
+  );
+}
+
+/** Quién viene: el paciente en grande y, debajo, quién lo agendó o su teléfono. */
+function Persona({ a }: { a: Row }) {
+  const distinto = a.paciente && a.paciente !== a.leads?.nombre;
+  return (
+    <div className="cita-quien">
+      <Avatar name={a.paciente ?? a.leads?.nombre} />
+      <div style={{ minWidth: 0 }}>
+        <strong>{a.paciente ?? a.leads?.nombre ?? "Sin nombre"}</strong>
+        <div className="cell-sub">{distinto ? `Agendó ${a.leads?.nombre ?? "un contacto"}` : (a.leads?.phone ?? "sin número visible")}</div>
+      </div>
+    </div>
+  );
+}
+
+/** Un botón que deja la cita en un estado. Es un formulario porque cambia datos: no vale un enlace. */
+function Marcar({ id, status, texto, clase, titulo }: { id: string; status: AppointmentStatus; texto: string; clase: string; titulo?: string }) {
+  return (
+    <form action={updateAppointmentStatus}>
+      <input type="hidden" name="id" value={id} />
+      <input type="hidden" name="status" value={status} />
+      <button type="submit" className={clase} title={titulo}>
+        {texto}
+      </button>
+    </form>
   );
 }
