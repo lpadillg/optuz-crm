@@ -396,6 +396,19 @@ describe("elegir sucursal siempre con opciones tocables", () => {
   }, 20_000);
 });
 
+describe("preguntar la sucursal", () => {
+  it("si la pregunta no nombra ninguna tienda, se manda la lista para tocar", async () => {
+    // Pasa aunque el lead ya tenga una sucursal guardada: quien lee «¿en qué sucursal?» en el teléfono no
+    // tiene nada que tocar, y acaba tecleando el nombre a mano.
+    h.create.mockResolvedValueOnce(textReply("Entiendo, pero necesito que me indiques en qué sucursal y tu nombre completo para agendar. 😊"));
+    await runAgent(ctx);
+
+    const [, texto, opciones] = h.sendOptions.mock.calls[0];
+    expect(texto).toBe("¿Cuál sucursal te queda más cerca?");
+    expect((opciones as { title: string }[]).length).toBeGreaterThanOrEqual(2);
+  }, 20_000);
+});
+
 describe("preguntar mañana o tarde", () => {
   it("la pregunta sale con botones, no en texto", async () => {
     h.create.mockResolvedValueOnce(textReply("Listo, sucursal Huánuco.\n\n¿Prefieres tu cita en la mañana o en la tarde? 😊"));

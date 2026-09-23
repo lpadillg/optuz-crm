@@ -213,8 +213,13 @@ async function respond(ctx: AgentContext): Promise<RunResult> {
   // Preguntar «¿en qué sucursal?» sin poner las tiendas obliga al cliente a teclear el nombre de una de las
   // cinco, y a acertar con la tilde. Si el modelo pregunta por la sucursal y todavía no sabemos cuál es la
   // suya, la lista sale igualmente: las opciones las decide el código, no lo que el modelo recuerde escribir.
-  const preguntaLaSucursal =
-    !toolCtx.branchId && !nombraVariasTiendas && text.includes("?") && /(en qué|en que|cuál|cual|qué|que) (sucursal|tienda)/i.test(text);
+  // Sin exigir que la sucursal sea desconocida: si el modelo la pregunta SIN nombrar ninguna tienda, el
+  // cliente no tiene nada que tocar, sepamos o no cuál es la suya. Que el lead tenga una guardada de hace
+  // meses no ayuda a quien está leyendo «¿en qué sucursal?» en el teléfono.
+  // Ni siquiera hace falta que sea una pregunta: «necesito que me indiques en qué sucursal» pide lo mismo sin
+  // signos de interrogación, y deja al cliente igual de a pie.
+  const pideLaSucursal = /((en|a) (qu[ée])|cu[áa]l|ind[íi]ca|indiques|dime|elige|escoge|selecciona|prefieres)[^.?!]{0,40}(sucursal|tienda|sede)/i;
+  const preguntaLaSucursal = !nombraVariasTiendas && pideLaSucursal.test(text);
   if (!toolCtx.handedOff && preguntaLaSucursal && tiendas.length >= 2) {
     try {
       await sendBotOptions(ctx.conversationId, "¿Cuál sucursal te queda más cerca?", tiendas, { kind: "options" });
