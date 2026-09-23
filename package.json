@@ -1,0 +1,43 @@
+{
+  "name": "optuz-crm",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:e2e": "node e2e/run.mjs",
+    "test:live": "node --env-file=.env.local ./node_modules/vitest/vitest.mjs run --config vitest.live.config.mts",
+    "create-user": "node --env-file=.env.local scripts/create-user.mjs",
+    "whatsapp": "node --env-file=.env.local scripts/whatsapp-setup.mjs",
+    "dev:users": "node --env-file=.env.local scripts/seed-dev-users.mjs",
+    "db:start": "supabase start",
+    "db:stop": "supabase stop",
+    "db:reset": "supabase db reset",
+    "test:e2e:safe": "node scripts/e2e-safe.mjs",
+    "google": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/google-setup.mjs",
+    "test:google": "node ./node_modules/vitest/vitest.mjs run --config vitest.google.config.mts"
+  },
+  "dependencies": {
+    "@supabase/ssr": "^0.12.7",
+    "@supabase/supabase-js": "^2.116.0",
+    "googleapis": "^181.0.0",
+    "next": "^16.3.5",
+    "openai": "^7.19.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "server-only": "^0.0.1",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.1",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "playwright-core": "^1.63.0",
+    "supabase": "^2.117.0",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.1"
+  }
+}
