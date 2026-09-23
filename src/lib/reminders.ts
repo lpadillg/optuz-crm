@@ -16,8 +16,19 @@ const norm = (s: string) =>
 export const isConfirmReply = (t: string) => /^(1|confirmo|confirmar|confirmada|si confirmo|si|ok|okay|de acuerdo|listo|alli estare|ahi estare|estare alli|asistire|voy)$/.test(norm(t));
 export const isCancelReply = (t: string) => /^(3|cancelar|cancelo|cancela mi cita|no podre ir|no voy a poder ir|no asistire|no ire)$/.test(norm(t));
 
+/**
+ * Cancelar es lo único del recordatorio que no tiene vuelta atrás: borra el evento del calendario y suelta el
+ * cupo, que otro cliente puede tomar en minutos. Y el botón está justo al lado de los otros dos, así que un
+ * toque de más cuesta una cita. Por eso se pregunta antes, y solo a quien pulsa cancelar.
+ */
+export const CANCEL_CONFIRM_BUTTONS = ["Sí, cancelar", "Mantener la cita"];
+export const isCancelYes = (t: string) => /^(si|si cancelar|si cancela|si cancelo|confirmo|correcto|asi es|dale|ok|eso|exacto)$/.test(norm(t));
+export const isCancelNo = (t: string) =>
+  /^(no|no cancelar|no cancele|mantener la cita|mantenerla|la mantengo|mejor no|no gracias|sigue|si voy|ahi estare)$/.test(norm(t));
+
 export const CONFIRMED_REPLY = "¡Gracias! Tu cita queda confirmada. ¡Te esperamos! 😊";
 export const CANCELLED_REPLY = "Listo, cancelé tu cita. Si quieres reprogramarla, escríbeme cuando gustes y buscamos un nuevo horario.";
+export const KEPT_REPLY = "¡Perfecto! Tu cita sigue en pie. ¡Te esperamos! 😊";
 
 const dateText = (d: Date) => new Intl.DateTimeFormat("es-PE", { timeZone: "America/Lima", weekday: "long", day: "numeric", month: "long" }).format(d);
 
@@ -96,29 +107,50 @@ export async function sendReminder(appointmentId: string, kind: "24h" | "2h"): P
 }
 
 /**
- * Si el último mensaje nuestro fue un recordatorio y el cliente confirma o cancela —pulsando el botón o
- * escribiéndolo—, se atiende aquí, sin llamar al modelo. «Reagendar» y cualquier otra cosa pasan al agente.
- * Devuelve true si ya quedó atendido.
+ * Respuestas a un recordatorio que se resuelven sin llamar al modelo: rápido, gratis y sin margen de error.
+ * Confirmar se aplica en el acto; cancelar pregunta antes, porque no tiene vuelta atrás. «Reagendar» y
+ * cualquier otra cosa pasan al agente. Devuelve true si ya quedó atendido.
  */
 export async function handleReminderReply(result: IngestResult, text: string): Promise<boolean> {
-  const confirm = isConfirmReply(text);
-  const cancel = !confirm && isCancelReply(text);
-  if (!confirm && !cancel) return false;
-
   const db = createAdminClient();
   const { data: lastOut } = await db.from("messages").select("meta").eq("conversation_id", result.conversationId).eq("direction", "out").order("created_at", { ascending: false }).limit(1);
   const meta = lastOut?.[0]?.meta as { kind?: string; appointment_id?: string } | undefined;
-  if (meta?.kind !== "reminder" || !meta.appointment_id) return false;
+  if (!meta?.appointment_id || (meta.kind !== "reminder" && meta.kind !== "cancel_confirm")) return false;
 
   const { data: appt } = await db.from("appointments").select("id, status, scheduled_at").eq("id", meta.appointment_id).maybeSingle();
   if (!appt || !["agendada", "confirmada"].includes(appt.status as string) || new Date(appt.scheduled_at as string).getTime() <= Date.now()) return false;
+  const start = new Date(appt.scheduled_at as string);
 
-  if (confirm) {
-    await confirmAppointment(appt.id as string);
-    if (result.botActive) await sendBotText(result.conversationId, CONFIRMED_REPLY, { kind: "confirmation", appointment_id: appt.id });
-  } else {
+  // Segundo paso: ya se le preguntó si de verdad quiere cancelar.
+  if (meta.kind === "cancel_confirm") {
+    if (isCancelNo(text)) {
+      if (result.botActive) await sendBotText(result.conversationId, KEPT_REPLY, { kind: "kept", appointment_id: appt.id });
+      return true;
+    }
+    if (!isCancelYes(text)) return false; // dijo otra cosa: que lo lea el agente
     await cancelAppointment(appt.id as string);
     if (result.botActive) await sendBotText(result.conversationId, CANCELLED_REPLY, { kind: "cancellation", appointment_id: appt.id });
+    return true;
   }
-  return true;
+
+  if (isConfirmReply(text)) {
+    await confirmAppointment(appt.id as string);
+    if (result.botActive) await sendBotText(result.conversationId, CONFIRMED_REPLY, { kind: "confirmation", appointment_id: appt.id });
+    return true;
+  }
+
+  if (isCancelReply(text)) {
+    // No se cancela todavía: se pregunta, diciendo qué cita es para que se note si fue un toque por error.
+    if (result.botActive) {
+      await sendBotOptions(
+        result.conversationId,
+        `¿Cancelo tu cita del ${dateText(start)} a las ${formatLimaTime(start)}?`,
+        CANCEL_CONFIRM_BUTTONS,
+        { kind: "cancel_confirm", appointment_id: appt.id },
+      );
+    }
+    return true;
+  }
+
+  return false;
 }

@@ -1,20 +1,20 @@
 import { describe, expect, it } from "vitest";
-import { revisarPlantilla, variablesDe, vistaPrevia } from "./plantilla-reglas";
+import { revisarPlantilla, variablesDe, vistaPrevia, type PlantillaPropuesta } from "./plantilla-reglas";
 
 /**
  * Las reglas que Meta aplica a una plantilla. Importan más de lo que parece: cuando Meta rechaza, lo hace
  * horas después, en inglés y sin decir qué arreglar, así que cada regla comprobada aquí es una espera que el
  * negocio se ahorra.
  */
-const base = {
+const base: PlantillaPropuesta = {
   name: "cliente_dormido",
-  category: "UTILITY" as const,
+  category: "UTILITY",
   language: "es",
   body: "Hola {{1}} 👋 Seguimos por aquí si quieres retomar tu evaluación visual.",
   examples: ["María"],
 };
 
-const problemas = (p: Partial<typeof base>) => revisarPlantilla({ ...base, ...p });
+const problemas = (p: Partial<PlantillaPropuesta>) => revisarPlantilla({ ...base, ...p });
 
 describe("revisarPlantilla", () => {
   it("una plantilla correcta no tiene nada que arreglar", () => {

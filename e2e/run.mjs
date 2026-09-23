@@ -1357,7 +1357,8 @@ console.log("\n── Citas, plantillas y anuncios");
   await runJob("reminder", { appointmentId: apptA, kind: "24h" }, `reminder24h:${apptA}`);
   const r1 = waCalls.at(-1)?.body;
   const rMsg = (await q(db.from("messages").select("content, meta").eq("conversation_id", ivanConv.id).eq("direction", "out").order("created_at", { ascending: false }).limit(1)))[0];
-  check("recordatorio (cliente escribió hace poco): sale como texto normal con fecha, hora, sucursal y cómo responder", waCalls.length === w0 + 1 && r1.type === "text" && /Marta/.test(r1.text.body) && /evaluación visual gratuita/.test(r1.text.body) && /Responde \*1\*/.test(r1.text.body) && /Huánuco/.test(r1.text.body), JSON.stringify(r1));
+  const botonesR1 = r1.interactive?.action?.buttons?.map((b) => b.reply.title) ?? [];
+  check("recordatorio (cliente escribió hace poco): sale con fecha, hora, sucursal y sus tres botones", waCalls.length === w0 + 1 && r1.type === "interactive" && /Marta/.test(r1.interactive.body.text) && /evaluación visual gratuita/.test(r1.interactive.body.text) && /Huánuco/.test(r1.interactive.body.text) && JSON.stringify(botonesR1) === JSON.stringify(["Confirmar", "Reagendar", "Cancelar"]), JSON.stringify(r1));
   check("...queda etiquetado como «reminder» con su cita y marcado como enviado", rMsg.meta.kind === "reminder" && rMsg.meta.appointment_id === apptA && !!(await q(db.from("appointments").select("reminder_24h_sent_at").eq("id", apptA)))[0].reminder_24h_sent_at);
   w0 = waCalls.length;
   await runJob("reminder", { appointmentId: apptA, kind: "24h" });
@@ -1366,10 +1367,10 @@ console.log("\n── Citas, plantillas y anuncios");
   // ── El cliente responde «1»: se confirma sin usar el modelo ──
   const llm0 = llmCalls.length;
   w0 = waCalls.length;
-  await post(inbound(marta, "wamid.conf1", "1"));
+  await post(inbound(marta, "wamid.conf1", "Confirmar"));
   await waitFor(() => waCalls.length === w0 + 1, 30000);
   const aA = (await q(db.from("appointments").select("status, confirmed_at").eq("id", apptA)))[0];
-  check("responde «1»: la cita queda «confirmada» (con fecha) y recibe el agradecimiento", aA.status === "confirmada" && !!aA.confirmed_at && /queda confirmada/.test(waCalls.at(-1).body.text.body));
+  check("pulsa «Confirmar»: la cita queda «confirmada» (con fecha) y recibe el agradecimiento", aA.status === "confirmada" && !!aA.confirmed_at && /queda confirmada/.test(waCalls.at(-1).body.text.body));
   await sleep(1200);
   check("...sin llamar al modelo (respuesta directa)", llmCalls.length === llm0);
 
@@ -1378,10 +1379,22 @@ console.log("\n── Citas, plantillas y anuncios");
   await q(db.from("jobs").insert({ kind: "reminder", payload: { appointmentId: apptB, kind: "2h" }, run_at: hoursFromNow(58), dedupe_key: `reminder2h:${apptB}` }));
   await runJob("reminder", { appointmentId: apptB, kind: "24h" });
   w0 = waCalls.length;
-  await post(inbound(marta, "wamid.canc3", "3"));
+  // Cancelar borra el evento del calendario y suelta el cupo, y el botón está pegado a los otros dos: se
+  // pregunta antes de hacerlo, para que un toque por error no cueste una cita.
+  await post(inbound(marta, "wamid.canc3", "Cancelar"));
+  await waitFor(() => waCalls.length === w0 + 1, 30000);
+  const pregunta = waCalls.at(-1).body;
+  const bAntes = (await q(db.from("appointments").select("status").eq("id", apptB)))[0];
+  check("pulsa «Cancelar»: NO cancela todavía, pregunta con botones y dice qué cita es",
+    bAntes.status !== "cancelada" && pregunta.type === "interactive" && /Cancelo tu cita del/.test(pregunta.interactive.body.text) &&
+    JSON.stringify(pregunta.interactive.action.buttons.map((b) => b.reply.title)) === JSON.stringify(["Sí, cancelar", "Mantener la cita"]),
+    JSON.stringify(pregunta));
+
+  w0 = waCalls.length;
+  await post(inbound(marta, "wamid.canc4", "Sí, cancelar"));
   await waitFor(() => waCalls.length === w0 + 1, 30000);
   const bB = (await q(db.from("appointments").select("status").eq("id", apptB)))[0];
-  check("responde «3»: la cita queda «cancelada» y se le confirma", bB.status === "cancelada" && /cancelé tu cita/.test(waCalls.at(-1).body.text?.body ?? ""), JSON.stringify({ bB, last: waCalls.at(-1)?.body, n: waCalls.length - w0 }));
+  check("...y al confirmarlo sí queda «cancelada» y se le avisa", bB.status === "cancelada" && /cancelé tu cita/.test(waCalls.at(-1).body.text?.body ?? ""), JSON.stringify({ bB, last: waCalls.at(-1)?.body }));
   check("...y se quitan los recordatorios pendientes de esa cita", (await q(db.from("jobs").select("id").eq("dedupe_key", `reminder2h:${apptB}`).eq("status", "pending"))).length === 0, JSON.stringify(await q(db.from("jobs").select("id, status, dedupe_key").eq("dedupe_key", `reminder2h:${apptB}`))));
   w0 = waCalls.length;
   await runJob("reminder", { appointmentId: apptB, kind: "2h" });
