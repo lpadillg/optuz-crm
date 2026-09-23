@@ -425,12 +425,12 @@ await post(payload("wamid.2", "Quiero una cita mañana"));
 await sleep(3500);
 check("con el bot pausado: guarda el mensaje pero el agente NO responde", (await q(db.from("messages").select("id").eq("wa_message_id", "wamid.2"))).length === 1 && llmCalls.length === before && waCalls.length === 2);
 
-await p.getByRole("button", { name: "Notas internas (0)" }).click();
-await p.locator(".composer textarea").fill("Cliente prefiere la tarde");
+// Las notas viven en el panel, junto al chat: se leen mientras se sigue viendo la conversación.
+await p.locator(".cp-nota-form textarea").fill("Cliente prefiere la tarde");
 await p.getByRole("button", { name: "Guardar nota" }).click();
 const note = await waitFor(async () => (await q(db.from("conversation_notes").select("*")))[0], 10000);
-check("nota interna guardada con su autor (no se envía al cliente)", note?.body === "Cliente prefiere la tarde" && note.author_id === users["huanuco@optuz.local"] && waCalls.length === 2);
-await p.getByRole("button", { name: /^Chat/ }).click();
+check("nota del equipo guardada con su autor (no se envía al cliente)", note?.body === "Cliente prefiere la tarde" && note.author_id === users["huanuco@optuz.local"] && waCalls.length === 2);
+check("...y se lee sin perder de vista el chat", await p.locator(".cp-notas li", { hasText: "Cliente prefiere la tarde" }).isVisible({ timeout: 10000 }).catch(() => false) && await p.locator(".messages").isVisible());
 
 await q(db.from("conversations").update({ requires_human: true, handoff_reason: "Reclamo por garantía" }).eq("id", conv.id));
 await p.reload();

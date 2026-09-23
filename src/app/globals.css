@@ -712,15 +712,6 @@ td.cell-main { font-weight: 500; }
 .thread-body { flex: 1; min-height: 0; display: flex; position: relative; }
 .thread-main { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; background: var(--panel-2); }
 
-.tabs { display: flex; gap: 6px; padding: 12px 20px 0; flex: none; }
-.tabs button {
-  background: transparent; color: var(--text-2);
-  border-color: transparent;
-  padding: 4px 13px; font-size: 13px; border-radius: 99px;
-}
-.tabs button:hover { background: var(--panel); border-color: var(--border); }
-.tabs button.active { background: var(--brand); color: var(--brand-ink); border-color: var(--brand); }
-
 .messages {
   flex: 1; overflow-y: auto; min-height: 0;
   padding: 16px 20px;
@@ -759,12 +750,6 @@ td.cell-main { font-weight: 500; }
 .bubble.humano { background: var(--bubble-human); border-color: transparent; }
 .bubble .who { font-size: 11px; font-weight: 600; color: var(--text-2); margin-bottom: 3px; }
 .bubble .body { white-space: pre-wrap; word-break: break-word; font-size: 13.5px; line-height: 1.5; }
-.note {
-  background: var(--warn-bg); border: 1px solid var(--warn-line);
-  border-radius: var(--r-lg); padding: 11px 14px;
-  white-space: pre-wrap; font-size: 13.5px; max-width: 580px;
-}
-.note .who { font-size: 11px; color: var(--muted); margin-bottom: 3px; font-weight: 500; }
 
 .icon-btn.on { color: var(--brand); background: var(--brand-soft); }
 .toasts { position: fixed; top: 66px; right: 16px; z-index: 80; display: flex; flex-direction: column; gap: 8px; width: min(340px, calc(100vw - 32px)); pointer-events: none; }
@@ -978,6 +963,17 @@ a.hl:hover { box-shadow: var(--shadow-md); transform: translateY(-1px); border-c
 .cp-appt .muted { font-size: 12px; }
 .cp-more { display: inline-block; font-size: 12px; text-decoration: none; margin-top: 2px; }
 .cp-tags { display: flex; gap: 5px; flex-wrap: wrap; margin-top: 2px; }
+/* Notas del equipo, en el panel: se leen junto al chat y el cliente no las ve nunca. */
+.cp-vacio { font-size: 12.5px; color: var(--muted); line-height: 1.45; margin: 2px 0 6px; }
+.cp-notas { list-style: none; margin: 4px 0 8px; padding: 0; display: grid; gap: 6px; max-height: 220px; overflow-y: auto; }
+.cp-notas li {
+  background: var(--warn-bg); border: 1px solid var(--warn-line); border-radius: var(--r-md);
+  padding: 8px 10px; font-size: 12.5px; line-height: 1.45; white-space: pre-wrap; word-break: break-word;
+}
+.cp-nota-quien { font-size: 11px; color: var(--muted); font-weight: 500; margin-bottom: 3px; }
+.cp-nota-form { display: grid; gap: 6px; }
+.cp-nota-form textarea { width: 100%; font-size: 12.5px; resize: vertical; }
+.cp-nota-form button { justify-self: start; }
 /* Total de lo que espera trabajo, junto al encabezado del grupo de carpetas. */
 .nav-total {
   display: inline-block; margin-left: 6px; padding: 0 6px; border-radius: 99px;
@@ -1522,7 +1518,6 @@ label.switch { flex-direction: row; align-items: center; gap: 12px; font-weight:
   .thread-head { position: sticky; top: 0; z-index: 4; }
   .composer { padding: 10px 12px 12px; }
   .messages { padding: 12px; }
-  .tabs { padding: 10px 12px 0; }
   .back { display: inline-flex; align-items: center; }
   .thread-head { padding: 10px 12px; gap: 10px; flex-wrap: wrap; }
   .thread-head .avatar { display: none; }

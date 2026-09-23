@@ -145,7 +145,6 @@ export function Thread(p: Props) {
   const [escalated, setEscalated] = useState(p.initialEscalated);
   const [assignedTo, setAssignedTo] = useState(p.initialAssignedTo);
   const [optOut, setOptOut] = useState(p.lead.opt_out);
-  const [tab, setTab] = useState<"chat" | "notas">("chat");
   const [text, setText] = useState("");
   const [note, setNote] = useState("");
   const [sending, setSending] = useState(false);
@@ -254,7 +253,7 @@ export function Thread(p: Props) {
     } else {
       box.scrollTop = box.scrollHeight;
     }
-  }, [messages, tab]);
+  }, [messages]);
 
   async function loadOlder() {
     const oldest = messages[0]?.created_at;
@@ -317,7 +316,7 @@ export function Thread(p: Props) {
 
   // "/atajo" abre el menú de respuestas rápidas mientras no haya espacios.
   const qrMatches =
-    tab === "chat" && text.startsWith("/") && !/\s/.test(text)
+    text.startsWith("/") && !/\s/.test(text)
       ? p.quickReplies.filter((q) => q.atajo.startsWith(text.slice(1).toLowerCase()))
       : [];
   function applyQuickReply(body: string) {
@@ -445,17 +444,7 @@ export function Thread(p: Props) {
 
       <div className="thread-body">
         <div className="thread-main">
-          <div className="tabs">
-            <button className={tab === "chat" ? "active" : ""} onClick={() => setTab("chat")}>
-              Chat
-            </button>
-            <button className={tab === "notas" ? "active" : ""} onClick={() => setTab("notas")}>
-              Notas internas ({notes.length})
-            </button>
-          </div>
-
-          {tab === "chat" ? (
-            <>
+          <>
               <div className="messages">
                 {hasMore && (
                   <button type="button" className="ghost btn-sm load-older" onClick={loadOlder} disabled={loadingOlder}>
@@ -567,30 +556,6 @@ export function Thread(p: Props) {
                 </div>
               </form>
             </>
-          ) : (
-            <>
-              <div className="messages">
-                {notes.length === 0 && <p className="muted">Sin notas. Solo las ve tu equipo; nunca se envían al cliente.</p>}
-                {notes.map((n) => (
-                  <div key={n.id} className="note">
-                    <div className="who">
-                      {n.author_name} · {fmt(n.created_at)}
-                    </div>
-                    {n.body}
-                  </div>
-                ))}
-                <div ref={bottom} />
-              </div>
-              <form onSubmit={addNote} className="composer">
-                <div className="composer-pill">
-                  <textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder="Nota interna…" rows={2} />
-                  <button type="submit" className="btn-sm" style={{ borderRadius: 99 }} disabled={!note.trim()}>
-                    Guardar nota
-                  </button>
-                </div>
-              </form>
-            </>
-          )}
 
           {error && <p className="error pad">{error}</p>}
         </div>
@@ -654,6 +619,32 @@ export function Thread(p: Props) {
             <Link href="/citas" className="muted cp-more">
               Ver citas →
             </Link>
+          </div>
+
+          <div className="cp-block">
+            <h3>Notas del equipo</h3>
+            {/* Junto al chat, no en su lugar: una nota sirve mientras lees la conversación, y antes había que
+                ocultar el chat para verla. El cliente nunca las ve. */}
+            {notes.length === 0 ? (
+              <p className="cp-vacio">Nadie ha anotado nada todavía. Lo que escribas aquí solo lo ve tu equipo.</p>
+            ) : (
+              <ul className="cp-notas">
+                {notes.map((n) => (
+                  <li key={n.id}>
+                    <div className="cp-nota-quien">
+                      {n.author_name} · {fmt(n.created_at)}
+                    </div>
+                    {n.body}
+                  </li>
+                ))}
+              </ul>
+            )}
+            <form onSubmit={addNote} className="cp-nota-form">
+              <textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder="Añadir una nota…" rows={2} />
+              <button type="submit" className="btn-sm" disabled={!note.trim()}>
+                Guardar nota
+              </button>
+            </form>
           </div>
 
           <div className="cp-block">
