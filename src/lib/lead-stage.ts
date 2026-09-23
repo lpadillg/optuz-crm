@@ -80,12 +80,21 @@ export async function syncStageFromAppointments(leadId: string): Promise<void> {
 
   const now = Date.now();
   const rows = appts ?? [];
-  const upcoming = rows.some((a) => ["agendada", "confirmada"].includes(a.status as string) && new Date(a.scheduled_at as string).getTime() > now);
+  // La próxima cita se guarda en el lead: así el tablero ordena «Cita agendada» por cercanía y la muestra en
+  // la tarjeta sin traerse la tabla de citas en cada carga.
+  const proxima = rows
+    .filter((a) => ["agendada", "confirmada"].includes(a.status as string) && new Date(a.scheduled_at as string).getTime() > now)
+    .map((a) => a.scheduled_at as string)
+    .sort()[0] ?? null;
 
-  if (upcoming) {
-    await db.from("leads").update({ stage: "cita_agendada", archived_at: null, archive_reason: null }).eq("id", leadId);
+  if (proxima) {
+    await db
+      .from("leads")
+      .update({ stage: "cita_agendada", next_appointment_at: proxima, archived_at: null, archive_reason: null })
+      .eq("id", leadId);
     return;
   }
+  await db.from("leads").update({ next_appointment_at: null }).eq("id", leadId);
 
   // Vino: el canal cumplió del todo. Sale del tablero (vuelve solo si escribe otra vez).
   if (rows.some((a) => a.status === "atendida")) {

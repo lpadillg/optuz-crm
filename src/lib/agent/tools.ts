@@ -56,6 +56,19 @@ async function sucursalConfirmada(ctx: ToolContext, nombre: string): Promise<boo
 }
 
 /**
+ * Anota que a este lead se le mostraron horarios concretos: estuvo a un paso de agendar. El tablero lo usa
+ * para poner arriba a quien más conviene recuperar, y se guarda como hecho para no tener que deducirlo
+ * después leyendo el historial del agente.
+ */
+async function anotarVioHorarios(ctx: ToolContext): Promise<void> {
+  try {
+    await createAdminClient().from("leads").update({ saw_slots_at: new Date().toISOString() }).eq("id", ctx.leadId);
+  } catch (err) {
+    console.error("[agente] no se pudo anotar que vio horarios", err);
+  }
+}
+
+/**
  * ¿Ya se le preguntó a nombre de quién va ESTA cita? Se pregunta siempre, incluso a un cliente conocido: la
  * cita puede ser para su hijo, su madre o un amigo, y en la tienda llaman por el nombre que figure. Saber
  * quién escribe no es saber quién viene.
@@ -418,6 +431,7 @@ export async function executeTool(name: string, input: unknown, ctx: ToolContext
         }
 
         const ofrecidos = slots.slice(0, 3).map((s) => formatLimaTime(new Date(s)));
+        if (ofrecidos.length > 0) await anotarVioHorarios(ctx);
         if (ofrecidos.length >= 2) {
           const cuando = parsed.data.franja ? `en la ${parsed.data.franja}` : "ese día";
           const enviado = await ofrecerBotones(ctx, `Estos son los horarios libres ${cuando}. ¿Cuál te acomoda?`, ofrecidos);
@@ -467,6 +481,7 @@ export async function executeTool(name: string, input: unknown, ctx: ToolContext
         }
 
         const slots = await findNextSlots(ctx.branchId, from, 3, 7, 30, parsed.data.franja ?? undefined);
+        if (slots.length > 0) await anotarVioHorarios(ctx);
         const enviado = slots.length > 0 && (await ofrecerBotones(ctx, "Estos son los horarios más próximos, ¿cuál te queda mejor?", slots.map((s) => etiquetaBoton(new Date(s)))));
         return json({
           opciones: slots.map((s) => ({ starts_at: toLimaLocal(new Date(s)), cuando: formatLima(new Date(s)) })),

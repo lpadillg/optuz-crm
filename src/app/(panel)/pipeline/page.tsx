@@ -1,85 +1,61 @@
 import { requireUser } from "@/lib/session";
-import { firstOf, type LeadOrigin, type LeadStage } from "@/lib/types";
-import { Board, type BoardLead } from "./board";
-
-type ConvEmbed = {
-  id: string;
-  last_message_at: string;
-  last_message_sender: "bot" | "humano" | "lead" | null;
-  requires_human: boolean;
-  assigned_to: string | null;
-  assignee: { nombre: string } | { nombre: string }[] | null;
-};
+import { Board } from "./board";
+import { CAMPOS_LEAD, COLUMNAS, HUMANO, ORDEN, POR_COLUMNA, toBoardLead, type BoardLead, type Columna, type LeadRow } from "./orden";
 
 export default async function PipelinePage() {
   // «Tablero de leads»: la misma gente que Contactos, ordenada por etapa.
   const { supabase, profile } = await requireUser();
-  const [{ data, error }, { data: branches }] = await Promise.all([
-    supabase
+
+  // Quién espera a una persona manda sobre su etapa, así que esos leads no deben salir además en su columna.
+  // Se piden solo los ids (son los chats pendientes de atender: una lista corta por definición).
+  const { data: pendientes } = await supabase
+    .from("conversations")
+    .select("lead_id")
+    .eq("requires_human", true)
+    .limit(1000);
+  const idsHumano = (pendientes ?? []).map((c) => c.lead_id as string);
+
+  /** Una columna: sus primeras tarjetas y cuántas hay en total. */
+  async function columna(status: Columna): Promise<{ leads: BoardLead[]; total: number }> {
+    if (status === HUMANO) {
+      // Se consulta desde `conversations` porque el orden lo marca su último mensaje, no nada del lead.
+      let q = supabase
+        .from("conversations")
+        .select(`lead_id, leads!inner(${CAMPOS_LEAD})`, { count: "exact" })
+        .eq("requires_human", true)
+        .eq("leads.opt_out", false)
+        .is("leads.archived_at", null);
+      for (const o of ORDEN[status]) q = q.order(o.col, { ascending: o.ascending, nullsFirst: o.nullsFirst });
+      const { data, count } = await q.limit(POR_COLUMNA);
+      const leads = (data ?? []).map((r) => toBoardLead(r.leads as unknown as LeadRow));
+      return { leads, total: count ?? leads.length };
+    }
+
+    let q = supabase
       .from("leads")
-      .select(
-        "id, nombre, phone, stage, tags, branch_id, returned_at, origin, branches(nombre), conversations(id, last_message_at, last_message_sender, requires_human, assigned_to, assignee:users!assigned_to(nombre))",
-      )
+      .select(CAMPOS_LEAD, { count: "exact" })
+      .eq("stage", status)
       .eq("opt_out", false)
-      .is("archived_at", null)
-      .order("updated_at", { ascending: false })
-      .limit(500),
+      .is("archived_at", null);
+    if (idsHumano.length) q = q.not("id", "in", `(${idsHumano.join(",")})`);
+    for (const o of ORDEN[status]) q = q.order(o.col, { ascending: o.ascending, nullsFirst: o.nullsFirst });
+    const { data, count } = await q.limit(POR_COLUMNA);
+    const leads = (data ?? []).map((l) => toBoardLead(l as unknown as LeadRow));
+    return { leads, total: count ?? leads.length };
+  }
+
+  const [columnas, { data: branches }] = await Promise.all([
+    Promise.all(COLUMNAS.map(async (c) => [c, await columna(c)] as const)),
     supabase.from("branches").select("id, nombre").eq("activa", true).order("nombre"),
   ]);
-  if (error) throw error;
 
-  const rows = (data ?? []) as unknown as {
-    id: string;
-    nombre: string | null;
-    phone: string | null;
-    stage: LeadStage;
-    tags: string[];
-    branch_id: string | null;
-    returned_at: string | null;
-    origin: LeadOrigin;
-    branches: { nombre: string } | null;
-    conversations: ConvEmbed | ConvEmbed[] | null;
-  }[];
-
-  // Quién llegó a ver horarios concretos: estuvo a un paso de agendar. Es un hecho registrado, no un juicio.
-  const { data: runs } = await supabase
-    .from("agent_runs")
-    .select("lead_id, tool_calls")
-    .not("lead_id", "is", null)
-    .order("created_at", { ascending: false })
-    .limit(3000);
-  const sawSlots = new Set(
-    (runs ?? [])
-      .filter((r) => ((r.tool_calls ?? []) as { name: string }[]).some((t) => t.name === "get_availability" || t.name === "next_available_slots"))
-      .map((r) => r.lead_id as string),
-  );
-
-  const leads: BoardLead[] = rows.map((l) => {
-    const conv = firstOf(l.conversations);
-    return {
-      id: l.id,
-      nombre: l.nombre,
-      phone: l.phone,
-      stage: l.stage,
-      tags: l.tags,
-      branchId: l.branch_id,
-      branch: l.branches?.nombre ?? null,
-      conversationId: conv?.id ?? null,
-      lastMessageAt: conv?.last_message_at ?? null,
-      waitingOnClient: conv?.last_message_sender !== "lead",
-      sawSlots: sawSlots.has(l.id),
-      returnedAt: l.returned_at,
-      origin: l.origin,
-      requiresHuman: conv?.requires_human ?? false,
-      assignedTo: conv?.assigned_to ?? null,
-      assigneeName: firstOf(conv?.assignee)?.nombre ?? null,
-    };
-  });
+  const inicial = Object.fromEntries(columnas.map(([c, v]) => [c, v.leads])) as Record<Columna, BoardLead[]>;
+  const totales = Object.fromEntries(columnas.map(([c, v]) => [c, v.total])) as Record<Columna, number>;
 
   return (
     <div className="page page-wide">
       <h1>Tablero de leads</h1>
-      <Board initial={leads} branches={branches ?? []} userId={profile.id} />
+      <Board initial={inicial} totales={totales} branches={branches ?? []} userId={profile.id} />
     </div>
   );
 }

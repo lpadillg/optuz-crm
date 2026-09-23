@@ -7,43 +7,37 @@ import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { horaCorta } from "@/lib/time";
 import { archiveLead } from "@/app/(panel)/crm-actions";
 import { escribirANoAsistio } from "@/app/(panel)/actions";
-import { LEAD_STAGES, LEAD_STAGE_HINT, LEAD_STAGE_LABEL, LEAD_ORIGIN_LABEL, MANUAL_ARCHIVE_REASONS, ARCHIVE_REASON_LABEL, type LeadOrigin, type LeadStage } from "@/lib/types";
+import { LEAD_STAGE_HINT, LEAD_STAGE_LABEL, LEAD_ORIGIN_LABEL, MANUAL_ARCHIVE_REASONS, ARCHIVE_REASON_LABEL, type LeadOrigin, type LeadStage } from "@/lib/types";
+import { CAMPOS_LEAD, COLUMNAS, ESPERA_DESDE, HUMANO, ORDEN, POR_COLUMNA, toBoardLead, type BoardLead, type Columna, type LeadRow } from "./orden";
 
-export interface BoardLead {
-  id: string;
-  nombre: string | null;
-  phone: string | null;
-  stage: LeadStage;
-  tags: string[];
-  branchId: string | null;
-  branch: string | null;
-  conversationId: string | null;
-  lastMessageAt: string | null;
-  /** El último mensaje lo escribimos nosotros: está en visto. */
-  waitingOnClient: boolean;
-  /** Llegó a ver horarios concretos: estuvo a un paso de agendar. */
-  sawSlots: boolean;
-  /** Volvió a escribir tras un silencio largo. */
-  returnedAt: string | null;
-  /** De dónde salió este cliente. */
-  origin: LeadOrigin;
-  requiresHuman: boolean;
-  assignedTo: string | null;
-  assigneeName: string | null;
-}
+export type { BoardLead };
 
 const fmt = (iso: string) =>
   horaCorta(new Intl.DateTimeFormat("es-PE", { timeZone: "America/Lima", day: "2-digit", month: "2-digit", hour: "numeric", minute: "2-digit" }).format(new Date(iso)));
 
-/** «Requiere humano» no es una etapa del embudo: puede pasar en cualquiera y manda sobre todas. */
-const HUMANO = "humano" as const;
-type Columna = LeadStage | typeof HUMANO;
-const COLUMNAS: Columna[] = [HUMANO, ...LEAD_STAGES];
 const COLUMNA_LABEL = (c: Columna) => (c === HUMANO ? "Requiere humano" : LEAD_STAGE_LABEL[c]);
 const COLUMNA_HINT = (c: Columna) =>
   c === HUMANO
     ? "Chats que esperan a una persona. Al atenderlos vuelven a la etapa que les toque."
     : LEAD_STAGE_HINT[c];
+
+/**
+ * Pedir un tramo que ya no existe no es un fallo: entre que se pintó el total y se pulsó «ver más», alguien
+ * pudo archivar tarjetas. Simplemente no hay más que traer.
+ */
+const sinMasFilas = (e: { code?: string }) => e.code === "PGRST103";
+
+/**
+ * Desde cuándo espera este lead, en las columnas donde esperar ES el problema: en «Nuevo» desde que escribió
+ * por primera vez, y en «Requiere humano» desde el último mensaje del chat. En las demás no se muestra,
+ * porque ahí el tiempo no significa lo mismo.
+ */
+const espera = (status: Columna, l: BoardLead): string | null => {
+  const desde = ESPERA_DESDE[status];
+  if (desde === "creado") return l.createdAt;
+  if (desde === "ultimo_mensaje") return l.lastMessageAt;
+  return null;
+};
 
 /** «2 h», «3 d»: cuánto lleva sin contestar. */
 function since(iso: string): string {
@@ -53,8 +47,21 @@ function since(iso: string): string {
   return h < 48 ? `${h} h` : `${Math.floor(h / 24)} d`;
 }
 
-export function Board({ initial, branches, userId }: { initial: BoardLead[]; branches: { id: string; nombre: string }[]; userId: string }) {
-  const [leads, setLeads] = useState(initial);
+export function Board({
+  initial,
+  totales,
+  branches,
+  userId,
+}: {
+  initial: Record<Columna, BoardLead[]>;
+  totales: Record<Columna, number>;
+  branches: { id: string; nombre: string }[];
+  userId: string;
+}) {
+  // Las columnas llegan ya ordenadas desde el servidor, cada una por lo suyo. Aquí se guardan en una sola
+  // lista porque mover una tarjeta le cambia la columna; el orden dentro de cada una se conserva.
+  const [leads, setLeads] = useState(() => COLUMNAS.flatMap((c) => initial[c] ?? []));
+  const [cargando, setCargando] = useState<Columna | null>(null);
   const [over, setOver] = useState<Columna | null>(null);
   const [archiving, setArchiving] = useState<BoardLead | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -67,7 +74,7 @@ export function Board({ initial, branches, userId }: { initial: BoardLead[]; bra
   const visible = useMemo(() => {
     const term = q.trim().toLowerCase();
     return leads.filter((l) => {
-      if (branch && l.branchId !== branch) return false;
+      if (branch === "ninguna" ? l.branchId : branch && l.branchId !== branch) return false;
       if (owner === "mios" && l.assignedTo !== userId) return false;
       if (owner === "sin_asignar" && l.assignedTo) return false;
       if (owner === "humano" && !l.requiresHuman) return false;
@@ -128,6 +135,46 @@ export function Board({ initial, branches, userId }: { initial: BoardLead[]; bra
     }
   }
 
+  /**
+   * Trae el siguiente tramo de una columna. Usa exactamente el mismo orden que el servidor (ORDEN), para que
+   * «ver más» continúe la lista en vez de empezar otra distinta.
+   */
+  async function verMas(status: Columna) {
+    setError(null);
+    setCargando(status);
+    const db = createSupabaseBrowserClient();
+    const desde = leads.filter((l) => (status === HUMANO ? l.requiresHuman : !l.requiresHuman && l.stage === status)).length;
+
+    let nuevas: BoardLead[] = [];
+    if (status === HUMANO) {
+      let q = db
+        .from("conversations")
+        .select(`lead_id, leads!inner(${CAMPOS_LEAD})`)
+        .eq("requires_human", true)
+        .eq("leads.opt_out", false)
+        .is("leads.archived_at", null);
+      for (const o of ORDEN[status]) q = q.order(o.col, { ascending: o.ascending, nullsFirst: o.nullsFirst });
+      const { data, error } = await q.range(desde, desde + POR_COLUMNA - 1);
+      if (error && !sinMasFilas(error)) { setCargando(null); setError("No se pudieron cargar más tarjetas."); return; }
+      nuevas = (data ?? []).map((r) => toBoardLead(r.leads as unknown as LeadRow));
+    } else {
+      const yaHumano = leads.filter((l) => l.requiresHuman).map((l) => l.id);
+      let q = db.from("leads").select(CAMPOS_LEAD).eq("stage", status).eq("opt_out", false).is("archived_at", null);
+      if (yaHumano.length) q = q.not("id", "in", `(${yaHumano.join(",")})`);
+      for (const o of ORDEN[status]) q = q.order(o.col, { ascending: o.ascending, nullsFirst: o.nullsFirst });
+      const { data, error } = await q.range(desde, desde + POR_COLUMNA - 1);
+      if (error && !sinMasFilas(error)) { setCargando(null); setError("No se pudieron cargar más tarjetas."); return; }
+      nuevas = (data ?? []).map((l) => toBoardLead(l as unknown as LeadRow));
+    }
+
+    // Una tarjeta pudo moverse de columna mientras tanto: no se duplica.
+    setLeads((cur) => {
+      const vistos = new Set(cur.map((l) => l.id));
+      return [...cur, ...nuevas.filter((l) => !vistos.has(l.id))];
+    });
+    setCargando(null);
+  }
+
   /** Le escribe a quien no vino para ofrecerle otro horario. Lo decide una persona, no pasa solo. */
   async function recuperar(lead: BoardLead) {
     setError(null);
@@ -169,6 +216,7 @@ export function Board({ initial, branches, userId }: { initial: BoardLead[]; bra
         <span className="muted summary">{visible.length} leads</span>
         <select value={branch} onChange={(e) => setBranch(e.target.value)} aria-label="Sucursal">
           <option value="">Todas las sucursales</option>
+          <option value="ninguna">Sin sucursal</option>
           {branches.map((b) => (
             <option key={b.id} value={b.id}>
               {b.nombre}
@@ -188,11 +236,11 @@ export function Board({ initial, branches, userId }: { initial: BoardLead[]; bra
 
       <div className="board">
         {COLUMNAS.map((status) => {
-          // Quien espera a una persona sale en la primera columna, no en su etapa.
-          // En «Sin respuesta» van primero los que llegaron a ver horarios: estaban a un paso de agendar.
-          const col = visible
-            .filter((l) => (status === HUMANO ? l.requiresHuman : !l.requiresHuman && l.stage === status))
-            .sort((a, b) => (status === "sin_respuesta" ? Number(b.sawSlots) - Number(a.sawSlots) : 0));
+          // Quien espera a una persona sale en la primera columna, no en su etapa. El orden dentro de cada
+          // una lo decidió la base (ver ORDEN en ./orden.ts): aquí solo se reparten las tarjetas.
+          const col = visible.filter((l) => (status === HUMANO ? l.requiresHuman : !l.requiresHuman && l.stage === status));
+          const cargadas = leads.filter((l) => (status === HUMANO ? l.requiresHuman : !l.requiresHuman && l.stage === status)).length;
+          const faltan = Math.max(0, (totales[status] ?? 0) - cargadas);
           return (
             <section
               key={status}
@@ -213,7 +261,7 @@ export function Board({ initial, branches, userId }: { initial: BoardLead[]; bra
               <header title={COLUMNA_HINT(status)}>
                 <strong>{COLUMNA_LABEL(status)}</strong>
                 <span className="col-sub muted">
-                  {col.length} {col.length === 1 ? "lead" : "leads"}
+                  {faltan > 0 ? `${col.length} de ${totales[status]}` : `${col.length} ${col.length === 1 ? "lead" : "leads"}`}
                 </span>
               </header>
               {col.map((l) => {
@@ -253,8 +301,19 @@ export function Board({ initial, branches, userId }: { initial: BoardLead[]; bra
                         <span className="state-dot idle" title="Sin conversación" />
                       )}
                     </div>
-                    {(l.waitingOnClient || l.sawSlots || l.returnedAt) && (
+                    {(l.waitingOnClient || l.sawSlots || l.returnedAt || espera(status, l) || l.nextAppointmentAt) && (
                       <div className="lead-marks">
+                        {/* Lo que lleva esperando, donde esperar es el problema: nadie le ha contestado todavía. */}
+                        {espera(status, l) && (
+                          <span className="mark urge" title={`Espera desde el ${fmt(espera(status, l)!)}`}>
+                            ⏱ lleva {since(espera(status, l)!)} esperando
+                          </span>
+                        )}
+                        {status === "cita_agendada" && l.nextAppointmentAt && (
+                          <span className="mark hot" title={`Su cita es el ${fmt(l.nextAppointmentAt)}`}>
+                            cita {fmt(l.nextAppointmentAt)}
+                          </span>
+                        )}
                         {l.sawSlots && (
                           <span className="mark hot" title="Llegó a ver horarios concretos: estuvo a un paso de agendar">
                             vio horarios
@@ -324,6 +383,11 @@ export function Board({ initial, branches, userId }: { initial: BoardLead[]; bra
               })}
               {col.length === 0 && (
                 <div className="col-empty muted">{status === HUMANO ? "Nadie espera a una persona" : "Suelta un lead aquí"}</div>
+              )}
+              {faltan > 0 && (
+                <button type="button" className="ghost btn-sm col-mas" disabled={cargando === status} onClick={() => void verMas(status)}>
+                  {cargando === status ? "Cargando…" : `Ver ${Math.min(faltan, POR_COLUMNA)} más`}
+                </button>
               )}
             </section>
           );

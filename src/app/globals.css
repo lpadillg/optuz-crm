@@ -1180,6 +1180,10 @@ a.kpi:hover { box-shadow: var(--shadow-md); transform: translateY(-1px); border-
 }
 .mark.hot { background: var(--brand-soft); color: var(--brand); border-color: var(--brand-line); font-weight: 600; }
 .mark.quiet { background: transparent; }
+/* Lleva esperando sin que nadie le conteste: es lo único de la tarjeta que pide actuar ya. */
+.mark.urge { background: var(--warn-bg); color: var(--warn); border-color: var(--warn); font-weight: 600; }
+/* «Ver más»: al pie de la columna, sin competir con las tarjetas. */
+.col-mas { width: 100%; margin-top: 4px; }
 
 .card-actions { display: flex; gap: 6px; align-items: center; }
 .card-actions .move { flex: 1; }
