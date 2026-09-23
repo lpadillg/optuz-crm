@@ -1,8 +1,8 @@
 /**
- * Las cuatro etapas del tablero. Miden una sola cosa —llegar a la cita— y se deducen de hechos, no del criterio
- * de nadie: escribió · conversación viva · lleva 24 h sin contestar · tiene cita por delante.
+ * Las etapas del tablero. Miden una sola cosa —llegar a la cita— y se deducen de hechos, no del criterio de
+ * nadie: escribió · conversación viva · lleva 24 h sin contestar · tiene cita por delante · no vino a ella.
  */
-export const LEAD_STAGES = ["nuevo", "seguimiento", "sin_respuesta", "cita_agendada"] as const;
+export const LEAD_STAGES = ["nuevo", "seguimiento", "sin_respuesta", "cita_agendada", "no_asistio"] as const;
 export type LeadStage = (typeof LEAD_STAGES)[number];
 
 export const LEAD_STAGE_LABEL: Record<LeadStage, string> = {
@@ -10,6 +10,7 @@ export const LEAD_STAGE_LABEL: Record<LeadStage, string> = {
   seguimiento: "En seguimiento",
   sin_respuesta: "Sin respuesta",
   cita_agendada: "Cita agendada",
+  no_asistio: "No asistió",
 };
 
 export const LEAD_STAGE_HINT: Record<LeadStage, string> = {
@@ -17,6 +18,7 @@ export const LEAD_STAGE_HINT: Record<LeadStage, string> = {
   seguimiento: "Conversación viva: aún se puede cerrar la cita.",
   sin_respuesta: "Lleva 24 h sin contestar. Arriba, quien estuvo más cerca de agendar.",
   cita_agendada: "Objetivo cumplido: tiene su cita por delante.",
+  no_asistio: "Tenía cita y no vino. Es la gente más fácil de recuperar: ya quiso venir y ya eligió sucursal.",
 };
 
 /**

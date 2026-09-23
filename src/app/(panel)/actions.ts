@@ -3,6 +3,8 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { clearReminderJobs } from "@/lib/appointment-ops";
+import { notifyNoShow, notifyReschedule } from "@/lib/appointment-notify";
+import { BookingError, rescheduleAppointment } from "@/lib/appointments";
 import { syncStageFromAppointments } from "@/lib/lead-stage";
 import { deleteCalendarEvent } from "@/lib/google/calendar";
 import { requireAdmin, requireUser } from "@/lib/session";
@@ -40,6 +42,101 @@ export async function updateAppointmentStatus(formData: FormData) {
     );
   }
   revalidatePath("/citas");
+}
+
+/** Vuelve a una pantalla con un aviso (redirect lanza una excepción: no llamarla dentro de try/catch). */
+function backTo(path: string, kind: "ok" | "error", message: string): never {
+  redirect(`${path}?${kind}=${encodeURIComponent(message)}`);
+}
+
+/**
+ * Mueve una cita a otra hora (y opcionalmente a otra sucursal) y se lo dice al cliente por WhatsApp.
+ *
+ * El aviso no es opcional por capricho: una cita que cambia sin que el paciente se entere es peor que no
+ * tenerla. Aun así puede desmarcarse, porque a veces el cambio se acordó por teléfono en ese mismo momento.
+ */
+export async function reprogramarCita(formData: FormData) {
+  await requireUser();
+  const parsed = z
+    .object({
+      id: z.uuid(),
+      starts_at: z.string().min(1, "Falta la nueva fecha y hora"),
+      branch_id: z.string().optional(),
+      avisar: z.string().optional(),
+    })
+    .safeParse(Object.fromEntries(formData));
+  if (!parsed.success) backTo("/citas", "error", parsed.error.issues[0].message);
+
+  const startsAt = parseLimaLocal(parsed.data.starts_at);
+  if (!startsAt) backTo("/citas", "error", "Fecha y hora inválidas");
+  if (startsAt.getTime() <= Date.now()) backTo("/citas", "error", "Esa fecha ya pasó: elige un horario futuro");
+
+  let resultado;
+  try {
+    resultado = await rescheduleAppointment(parsed.data.id, startsAt, parsed.data.branch_id || undefined);
+  } catch (err) {
+    if (err instanceof BookingError) backTo("/citas", "error", err.message);
+    throw err;
+  }
+
+  const cuando = new Intl.DateTimeFormat("es-PE", { timeZone: "America/Lima", dateStyle: "long", timeStyle: "short" }).format(resultado.ahora);
+  if (!parsed.data.avisar) {
+    revalidatePath("/citas");
+    backTo("/citas", "ok", `Cita movida al ${cuando}. No se le avisó al cliente: díselo tú.`);
+  }
+
+  const aviso = await notifyReschedule({
+    appointmentId: resultado.appointmentId,
+    leadId: resultado.leadId,
+    antes: resultado.antes,
+    ahora: resultado.ahora,
+    branch: resultado.branch,
+    cambioDeSede: !!parsed.data.branch_id && parsed.data.branch_id !== "",
+  });
+  revalidatePath("/citas");
+  const cola = {
+    sent: "Ya se le avisó por WhatsApp.",
+    skipped: "No se le avisó: pidió no recibir mensajes.",
+    needs_human: "No se le pudo avisar (pasaron 24 h sin que escribiera y falta la plantilla): quedó marcado en el inbox.",
+  }[aviso];
+  backTo("/citas", aviso === "needs_human" ? "error" : "ok", `Cita movida al ${cuando}. ${cola}`);
+}
+
+/**
+ * Escribe a quien no vino a su cita para ofrecerle otro horario. Se llama desde el tablero, así que devuelve
+ * el resultado en vez de redirigir.
+ *
+ * El mensaje no sale solo al marcar «no asistió»: alguien de la tienda decide cuándo, porque a veces el
+ * cliente avisó por teléfono y escribirle sería quedar mal.
+ */
+export async function escribirANoAsistio(leadId: string): Promise<{ ok: boolean; error?: string; message?: string }> {
+  const { supabase } = await requireUser();
+  const id = z.uuid().safeParse(leadId);
+  if (!id.success) return { ok: false, error: "Contacto inválido" };
+
+  // Con la sesión del usuario: RLS decide si puede ver a este cliente.
+  const { data: appt } = await supabase
+    .from("appointments")
+    .select("id, lead_id, scheduled_at")
+    .eq("lead_id", id.data)
+    .eq("status", "no_show")
+    .order("scheduled_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (!appt) return { ok: false, error: "Este contacto no tiene ninguna cita marcada como «no vino»" };
+
+  const aviso = await notifyNoShow({
+    appointmentId: appt.id as string,
+    leadId: appt.lead_id as string,
+    cuando: new Date(appt.scheduled_at as string),
+  });
+  revalidatePath("/pipeline");
+  if (aviso === "sent") return { ok: true, message: "Le escribimos para ofrecerle otro horario." };
+  if (aviso === "skipped") return { ok: false, error: "No se le escribió: pidió no recibir mensajes." };
+  return {
+    ok: false,
+    error: "No se le pudo escribir: pasaron más de 24 h desde su último mensaje y falta la plantilla «cita_no_asistio». Quedó marcado en el inbox.",
+  };
 }
 
 export async function createPromotion(formData: FormData) {

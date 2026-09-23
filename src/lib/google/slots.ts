@@ -50,22 +50,38 @@ const horaLima = (d: Date) => Number(new Intl.DateTimeFormat("en-GB", { timeZone
 export const enFranja = (d: Date, franja: Franja) => (franja === "mañana" ? horaLima(d) < BUSINESS_HOURS.breakStartHour : horaLima(d) >= BUSINESS_HOURS.breakEndHour);
 
 /**
- * Qué horarios se OFRECEN (no cuáles se pueden reservar): las horas en punto, y la media hora solo cuando su
- * hora en punto ya está ocupada. Con la agenda vacía, ofrecer 8:00, 8:30, 9:00… son veinte opciones que agobian
- * y dejan la agenda partida; así se ofrece la mitad y las citas quedan ordenadas.
+ * Qué horarios se OFRECEN cuando el cliente pregunta por disponibilidad — que no es lo mismo que cuáles se
+ * pueden reservar. La agenda se llena primero en horas en punto (8:00, 9:00, 10:00…) y solo se pasa a las
+ * medias cuando ya no queda ninguna hora en punto con cupo. Así las citas del día quedan agrupadas en vez de
+ * partidas, y al cliente se le ofrecen pocas opciones claras en vez de veinte.
+ *
+ * Esto NO impide reservar una media hora: si el cliente pide él mismo las 2:30, se le da mientras quede cupo.
  */
-export function soloEnPuntoSalvoOcupado(slots: Date[]): Date[] {
-  const enPunto = new Set(slots.filter((d) => d.getUTCMinutes() === 0).map((d) => d.getTime()));
-  return slots.filter((d) => d.getUTCMinutes() === 0 || !enPunto.has(d.getTime() - 30 * 60_000));
+export function prioridadEnPunto(slots: Date[]): Date[] {
+  const enPunto = slots.filter((d) => d.getUTCMinutes() === 0);
+  return enPunto.length > 0 ? enPunto : slots;
 }
 
-/** Huecos libres del día que no se cruzan con `busy`, el refrigerio ni el pasado. */
-export function computeFreeSlots(
-  date: string,
-  busy: BusyInterval[],
-  durationMinutes: number,
-  now: Date = new Date(),
-): Date[] {
+/** Cuántas citas ya hay en cada horario, por instante de inicio (clave: `Date.getTime()`). */
+export type Ocupacion = ReadonlyMap<number, number>;
+
+export interface FreeSlotsInput {
+  /** Eventos que cierran el horario por completo: los que alguien puso a mano en el calendario. */
+  bloqueos: readonly BusyInterval[];
+  /** Citas ya agendadas por el CRM, que consumen cupo pero no cierran el horario. */
+  ocupacion: Ocupacion;
+  /** Cuántas citas caben a la misma hora. */
+  capacidad: number;
+  durationMinutes: number;
+  now?: Date;
+}
+
+/**
+ * Horarios del día con al menos un cupo libre: los que no chocan con un bloqueo, el refrigerio ni el pasado,
+ * y que aún no llegaron al tope de citas simultáneas.
+ */
+export function computeFreeSlots(date: string, input: FreeSlotsInput): Date[] {
+  const { bloqueos, ocupacion, capacidad, durationMinutes, now = new Date() } = input;
   const { open, close } = businessDayBounds(date);
   const stepMs = BUSINESS_HOURS.slotMinutes * 60_000;
   const slots: Date[] = [];
@@ -75,7 +91,8 @@ export function computeFreeSlots(
     if (start <= now) continue;
     if (!isWithinBusinessHours(start, durationMinutes)) continue;
     const end = new Date(t + durationMinutes * 60_000);
-    if (busy.some((b) => start < b.end && end > b.start)) continue;
+    if (bloqueos.some((b) => start < b.end && end > b.start)) continue;
+    if ((ocupacion.get(t) ?? 0) >= capacidad) continue;
     slots.push(start);
   }
   return slots;

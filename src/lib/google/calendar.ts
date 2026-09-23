@@ -40,6 +40,50 @@ export async function getBusyIntervals(calendarId: string, timeMin: Date, timeMa
   return (entry?.busy ?? []).map((b) => ({ start: new Date(b.start!), end: new Date(b.end!) }));
 }
 
+export interface CalendarEvent extends BusyInterval { id: string }
+
+/**
+ * Los eventos del calendario en [timeMin, timeMax], con su id.
+ *
+ * Hace falta el id (y no basta freebusy) desde que un horario admite varias citas: los eventos que puso
+ * el CRM no bloquean nada — son los que ya se cuentan como cupos en la base —, mientras que un evento
+ * creado a mano en el calendario (el especialista no viene, una reunión) sí cierra el horario entero.
+ * Sin id no hay forma de distinguirlos.
+ */
+export async function listEvents(calendarId: string, timeMin: Date, timeMax: Date): Promise<CalendarEvent[]> {
+  const res = await calendarClient().events.list({
+    calendarId,
+    timeMin: timeMin.toISOString(),
+    timeMax: timeMax.toISOString(),
+    singleEvents: true, // expande las series repetidas en sus ocurrencias
+    maxResults: 2500,
+    timeZone: env.googleCalendarTimezone,
+  });
+  const eventos: CalendarEvent[] = [];
+  for (const ev of res.data.items ?? []) {
+    if (ev.status === "cancelled" || !ev.id) continue;
+    // Un evento de día completo (`date` en vez de `dateTime`) tapa toda la jornada: p. ej. "feriado".
+    const start = ev.start?.dateTime ?? ev.start?.date;
+    const end = ev.end?.dateTime ?? ev.end?.date;
+    if (!start || !end) continue;
+    eventos.push({ id: ev.id, start: new Date(start), end: new Date(end) });
+  }
+  return eventos;
+}
+
+/** Mueve un evento ya creado a otra hora (reprogramación). */
+export async function moveCalendarEvent(calendarId: string, eventId: string, start: Date, end: Date): Promise<void> {
+  const tz = env.googleCalendarTimezone;
+  await calendarClient().events.patch({
+    calendarId,
+    eventId,
+    requestBody: {
+      start: { dateTime: start.toISOString(), timeZone: tz },
+      end: { dateTime: end.toISOString(), timeZone: tz },
+    },
+  });
+}
+
 export interface CreateEventInput {
   calendarId: string;
   summary: string;

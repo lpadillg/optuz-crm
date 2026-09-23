@@ -71,10 +71,10 @@ describe("a qué etapa vuelve el cliente según sus citas", () => {
     expect(lastUpdate().archived_at).toBeTruthy();
   });
 
-  it("NO asistió: la cita ocurrió y el embudo ya había cumplido, así que no vuelve al tablero", async () => {
+  it("no asistió: pasa a su propia columna para que alguien le escriba, no se pierde", async () => {
     h.state.appts = [{ status: "no_show", scheduled_at: enHoras(-24) }];
     await syncStageFromAppointments("lead1");
-    expect(h.state.updates).toHaveLength(0); // recuperarlo es cosa de Citas, no del embudo
+    expect(lastUpdate()).toMatchObject({ stage: "no_asistio", archived_at: null });
   });
 
   it("una cita ya pasada sin marcar no cuenta como cita por delante", async () => {

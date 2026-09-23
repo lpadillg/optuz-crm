@@ -6,6 +6,7 @@ import { Icon } from "@/components/icons";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { horaCorta } from "@/lib/time";
 import { archiveLead } from "@/app/(panel)/crm-actions";
+import { escribirANoAsistio } from "@/app/(panel)/actions";
 import { LEAD_STAGES, LEAD_STAGE_HINT, LEAD_STAGE_LABEL, LEAD_ORIGIN_LABEL, MANUAL_ARCHIVE_REASONS, ARCHIVE_REASON_LABEL, type LeadOrigin, type LeadStage } from "@/lib/types";
 
 export interface BoardLead {
@@ -57,6 +58,8 @@ export function Board({ initial, branches, userId }: { initial: BoardLead[]; bra
   const [over, setOver] = useState<Columna | null>(null);
   const [archiving, setArchiving] = useState<BoardLead | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [aviso, setAviso] = useState<string | null>(null);
+  const [escribiendo, setEscribiendo] = useState<string | null>(null);
   const [branch, setBranch] = useState("");
   const [owner, setOwner] = useState<"todos" | "mios" | "sin_asignar" | "humano" | "en_visto">("todos");
   const [q, setQ] = useState("");
@@ -95,6 +98,13 @@ export function Board({ initial, branches, userId }: { initial: BoardLead[]; bra
       return;
     }
 
+    // «No asistió» sale de haber marcado la cita en Citas, no de arrastrar una tarjeta: si se pudiera poner
+    // a mano, la columna dejaría de significar lo que dice.
+    if (destino === "no_asistio") {
+      setError("«No asistió» se marca en Citas, al anotar si el cliente vino. Desde aquí no se puede poner.");
+      return;
+    }
+
     // Sacarlo de «Requiere humano» es darlo por atendido, además de cambiarlo de etapa.
     const atender = lead.requiresHuman && lead.conversationId;
     if (lead.stage === destino && !atender) return;
@@ -116,6 +126,16 @@ export function Board({ initial, branches, userId }: { initial: BoardLead[]; bra
         setError("Se movió el lead, pero no se pudo dar por atendido el chat.");
       }
     }
+  }
+
+  /** Le escribe a quien no vino para ofrecerle otro horario. Lo decide una persona, no pasa solo. */
+  async function recuperar(lead: BoardLead) {
+    setError(null);
+    setEscribiendo(lead.id);
+    const res = await escribirANoAsistio(lead.id);
+    setEscribiendo(null);
+    if (!res.ok) setError(res.error ?? "No se le pudo escribir.");
+    else setAviso(res.message ?? "Mensaje enviado.");
   }
 
   /** Sacar del tablero a quien no pertenece al embudo. Se puede deshacer desde la ficha del contacto. */
@@ -164,6 +184,7 @@ export function Board({ initial, branches, userId }: { initial: BoardLead[]; bra
         </select>
       </div>
       {error && <p className="error">{error}</p>}
+      {aviso && <p className="banner ok">{aviso}</p>}
 
       <div className="board">
         {COLUMNAS.map((status) => {
@@ -277,12 +298,23 @@ export function Board({ initial, branches, userId }: { initial: BoardLead[]; bra
                         onChange={(e) => move(l.id, e.target.value as Columna)}
                         aria-label="Mover a"
                       >
-                        {COLUMNAS.map((s) => (
+                        {COLUMNAS.filter((s) => s !== "no_asistio" || l.stage === "no_asistio").map((s) => (
                           <option key={s} value={s}>
                             {COLUMNA_LABEL(s)}
                           </option>
                         ))}
                       </select>
+                      {l.stage === "no_asistio" && (
+                        <button
+                          type="button"
+                          className="btn-sm"
+                          disabled={escribiendo === l.id}
+                          title="Ofrecerle otro horario por WhatsApp"
+                          onClick={() => void recuperar(l)}
+                        >
+                          {escribiendo === l.id ? "Enviando…" : "Escribirle"}
+                        </button>
+                      )}
                       <button type="button" className="icon-btn" title="Archivar: sacarlo del tablero" aria-label={`Archivar a ${title}`} onClick={() => setArchiving(l)}>
                         <Icon name="archivar" size={16} />
                       </button>

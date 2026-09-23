@@ -11,7 +11,7 @@ import { requireAdmin, requireUser, seesAllBranches } from "@/lib/session";
 import { setAgentEnabled } from "@/lib/settings";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { KNOWLEDGE_CATEGORIES, LEAD_ORIGINS, MANUAL_ARCHIVE_REASONS } from "@/lib/types";
-import { createTemplate, REMINDER_TEMPLATE, syncTemplates } from "@/lib/whatsapp/templates";
+import { createTemplate, syncTemplates, TEMPLATE_DEFS } from "@/lib/whatsapp/templates";
 
 // Escrituras con la sesión del usuario: RLS es la barrera (asesor = su sucursal o todas si no tiene una, admin = todo).
 // Las de equipo usan la service role, solo después de comprobar que quien llama es admin.
@@ -563,12 +563,15 @@ export async function syncTemplatesAction() {
   }
 }
 
-export async function createReminderTemplate() {
+/** Envía a Meta una de las plantillas que el CRM sabe crear, para que la revise y la apruebe. */
+export async function createReminderTemplate(formData?: FormData) {
   await requireAdmin();
+  const pedida = formData?.get("name");
+  const def = TEMPLATE_DEFS.find((t) => t.name === pedida) ?? TEMPLATE_DEFS[0];
   try {
-    const r = await createTemplate(REMINDER_TEMPLATE);
+    const r = await createTemplate(def);
     revalidatePath("/plantillas");
-    back("/plantillas", "ok", `Plantilla «${REMINDER_TEMPLATE.name}» enviada a Meta (estado: ${r.status}). La revisión tarda de minutos a unas horas: luego pulsa «Sincronizar».`);
+    back("/plantillas", "ok", `Plantilla «${def.name}» enviada a Meta (estado: ${r.status}). La revisión tarda de minutos a unas horas: luego pulsa «Sincronizar».`);
   } catch (err) {
     if (isRedirectError(err)) throw err;
     back("/plantillas", "error", err instanceof Error ? err.message : "No se pudo crear la plantilla");

@@ -10,6 +10,8 @@ const h = vi.hoisted(() => {
     active: 0,
     /** Citas que creó hoy, en cualquier estado. */
     today: 0,
+    /** Cuántas citas hay ya en el horario que se pide (el tope por defecto es 3). */
+    enEsaHora: 0,
     inserted: [] as unknown[],
   };
   // Cliente de Supabase mínimo: solo lo que usa bookAppointment.
@@ -23,13 +25,15 @@ const h = vi.hoisted(() => {
       eq: (k: string, v: unknown) => (q.filters.push([k, v]), b),
       in: (k: string, v: unknown) => (q.filters.push([k, v]), b),
       gte: (k: string, v: unknown) => (q.filters.push([k, v]), b),
+      lt: (k: string, v: unknown) => (q.filters.push([k, v]), b),
       single: () => Promise.resolve(resolve(q)),
       maybeSingle: () => Promise.resolve(resolve(q)),
-      then: (ok: (v: unknown) => unknown, bad: (e: unknown) => unknown) => Promise.resolve(resolve(q)).then(ok, bad),
+      // Sin .single(): la consulta devuelve una lista (así se lee la ocupación de un horario).
+      then: (ok: (v: unknown) => unknown, bad: (e: unknown) => unknown) => Promise.resolve(resolve(q, true)).then(ok, bad),
     };
     return b;
   }
-  function resolve(q: { table: string; filters: [string, unknown][]; head: boolean }) {
+  function resolve(q: { table: string; filters: [string, unknown][]; head: boolean }, lista = false) {
     if (q.table === "branches") {
       return { data: { id: "b1", nombre: "Huánuco", direccion: "Jr. 28 de Julio 1131", google_calendar_id: "cal-1" }, error: null };
     }
@@ -40,34 +44,41 @@ const h = vi.hoisted(() => {
         const byStatus = q.filters.some(([k]) => k === "status");
         return { data: null, error: null, count: byStatus ? state.active : state.today };
       }
+      if (lista) {
+        // Las citas que ya ocupan ese horario, todas a la misma hora que la pedida.
+        const at = nextMonday10().toISOString();
+        return { data: Array.from({ length: state.enEsaHora }, () => ({ scheduled_at: at, google_event_id: null })), error: null };
+      }
       return { data: { id: "appt1" }, error: null };
     }
     return { data: null, error: null };
   }
-  return { state, db: { from: builder }, getBusyIntervals: vi.fn(), createCalendarEvent: vi.fn(), deleteCalendarEvent: vi.fn(), scheduleAppointmentJobs: vi.fn(), syncStage: vi.fn() };
+  /** Un horario de atención seguro: el próximo lunes a las 10:00 de Lima. */
+  function nextMonday10(): Date {
+    const d = new Date();
+    d.setUTCDate(d.getUTCDate() + 1);
+    while (new Date(d.getTime() - 5 * 3_600_000).getUTCDay() !== 1) d.setUTCDate(d.getUTCDate() + 1);
+    const day = new Date(d.getTime() - 5 * 3_600_000).toISOString().slice(0, 10);
+    return new Date(`${day}T10:00:00-05:00`);
+  }
+  return { state, db: { from: builder }, nextMonday10, listEvents: vi.fn(), createCalendarEvent: vi.fn(), deleteCalendarEvent: vi.fn(), moveCalendarEvent: vi.fn(), scheduleAppointmentJobs: vi.fn(), clearReminderJobs: vi.fn(), syncStage: vi.fn() };
 });
 
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: () => h.db }));
 vi.mock("@/lib/google/calendar", () => ({
-  getBusyIntervals: h.getBusyIntervals,
+  listEvents: h.listEvents,
   createCalendarEvent: h.createCalendarEvent,
   deleteCalendarEvent: h.deleteCalendarEvent,
+  moveCalendarEvent: h.moveCalendarEvent,
 }));
-vi.mock("@/lib/appointment-ops", () => ({ scheduleAppointmentJobs: h.scheduleAppointmentJobs }));
+vi.mock("@/lib/appointment-ops", () => ({ scheduleAppointmentJobs: h.scheduleAppointmentJobs, clearReminderJobs: h.clearReminderJobs }));
 // El tablero se recalcula aparte (src/lib/lead-stage.ts): aquí solo importa el límite de citas.
 vi.mock("@/lib/lead-stage", () => ({ syncStageFromAppointments: h.syncStage }));
 
 import { BookingError, bookAppointment } from "./appointments";
 
-/** Un horario de atención seguro: el próximo lunes a las 10:00 de Lima. */
-function nextMonday10(): Date {
-  const d = new Date();
-  d.setUTCDate(d.getUTCDate() + 1);
-  while (new Date(d.getTime() - 5 * 3_600_000).getUTCDay() !== 1) d.setUTCDate(d.getUTCDate() + 1);
-  const day = new Date(d.getTime() - 5 * 3_600_000).toISOString().slice(0, 10);
-  return new Date(`${day}T10:00:00-05:00`);
-}
+const nextMonday10 = h.nextMonday10;
 
 const book = () => bookAppointment({ leadId: "lead1", branchId: "b1", startsAt: nextMonday10() });
 
@@ -75,7 +86,8 @@ beforeEach(() => {
   h.state.active = 0;
   h.state.today = 0;
   h.state.inserted = [];
-  h.getBusyIntervals.mockReset().mockResolvedValue([]);
+  h.state.enEsaHora = 0;
+  h.listEvents.mockReset().mockResolvedValue([]);
   h.createCalendarEvent.mockReset().mockResolvedValue("ev-1");
   h.scheduleAppointmentJobs.mockReset();
   h.syncStage.mockReset();
@@ -97,7 +109,7 @@ describe("cuántas citas puede tener un mismo cliente", () => {
   it("...y ni siquiera consulta Google ni crea la fila (el límite va antes)", async () => {
     h.state.active = 3;
     await expect(book()).rejects.toThrow();
-    expect(h.getBusyIntervals).not.toHaveBeenCalled();
+    expect(h.listEvents).not.toHaveBeenCalled();
     expect(h.createCalendarEvent).not.toHaveBeenCalled();
     expect(h.state.inserted).toHaveLength(0);
   });
@@ -126,5 +138,30 @@ describe("cuántas citas puede tener un mismo cliente", () => {
   it("el mensaje del error dice cuántas tiene, para que el bot se lo explique al cliente", async () => {
     h.state.active = 3;
     await expect(book()).rejects.toThrow(/3 cita\(s\) próxima\(s\)/);
+  });
+});
+
+describe("cuántas citas caben en el mismo horario", () => {
+  it("una segunda y una tercera cita a la misma hora se agendan: hay más de una persona atendiendo", async () => {
+    h.state.enEsaHora = 2;
+    await expect(book()).resolves.toMatchObject({ appointmentId: "appt1" });
+  });
+
+  it("al llegar al tope de 3, se rechaza y se dice por qué", async () => {
+    h.state.enEsaHora = 3;
+    await expect(book()).rejects.toMatchObject({ code: "slot_taken" } satisfies Partial<BookingError>);
+    await expect(book()).rejects.toThrow(/3 citas/);
+  });
+
+  it("el tope se puede configurar", async () => {
+    vi.stubEnv("APPOINTMENT_SLOT_CAPACITY", "1");
+    h.state.enEsaHora = 1;
+    await expect(book()).rejects.toMatchObject({ code: "slot_taken" });
+  });
+
+  it("un evento puesto a mano en el calendario cierra el horario aunque queden cupos", async () => {
+    const start = nextMonday10();
+    h.listEvents.mockResolvedValue([{ id: "ajeno", start, end: new Date(start.getTime() + 30 * 60_000) }]);
+    await expect(book()).rejects.toMatchObject({ code: "slot_taken" });
   });
 });

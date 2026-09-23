@@ -27,6 +27,27 @@ export const REMINDER_TEMPLATE: TemplateDef = {
   examples: ["María", "sábado 19 de septiembre", "10:00 a. m.", "Huánuco", "Jr. 28 de Julio 1131"],
 };
 
+/** Cita movida: {{1}} nombre, {{2}} día nuevo, {{3}} hora nueva, {{4}} sucursal. */
+export const RESCHEDULE_TEMPLATE: TemplateDef = {
+  name: "cita_reprogramada",
+  category: "UTILITY",
+  language: "es",
+  body: "Hola {{1}} 👋 Tu evaluación visual cambió de horario: ahora es el {{2}} a las {{3}} en la sucursal {{4}}. Si no te queda bien, respóndenos y buscamos otro horario.",
+  examples: ["María", "sábado 19 de septiembre", "10:00 a. m.", "Huánuco"],
+};
+
+/** No vino a su cita: {{1}} nombre, {{2}} día en que no vino. Sirve para recuperarla sin que quede en nada. */
+export const NO_SHOW_TEMPLATE: TemplateDef = {
+  name: "cita_no_asistio",
+  category: "UTILITY",
+  language: "es",
+  body: "Hola {{1}} 👋 Te esperábamos el {{2}} para tu evaluación visual gratuita y no pudiste venir. ¿Quieres que te busquemos un nuevo horario? Respóndenos y lo vemos.",
+  examples: ["María", "sábado 19 de septiembre"],
+};
+
+/** Todas las plantillas que el CRM sabe crear, en el orden en que se muestran en «Plantillas». */
+export const TEMPLATE_DEFS: TemplateDef[] = [REMINDER_TEMPLATE, RESCHEDULE_TEMPLATE, NO_SHOW_TEMPLATE];
+
 /** Rellena {{1}}, {{2}}… (lo que ve el inbox como texto del mensaje enviado). */
 export function renderTemplate(body: string, params: string[]): string {
   return body.replace(/\{\{(\d+)\}\}/g, (_, n: string) => params[Number(n) - 1] ?? "");

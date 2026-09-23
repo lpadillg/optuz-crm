@@ -13,6 +13,8 @@ const h = vi.hoisted(() => {
     convRow: null as { bot_active: boolean } | null,
     /** Fila de `leads` que devuelve maybeSingle (p. ej. {tags:[]}). */
     leadRow: null as { tags: string[] } | null,
+    /** Mensajes del chat, de lo más nuevo a lo más viejo: de ahí sale si el cliente dio su nombre o la tienda. */
+    historial: [] as { direction: string; content: string }[],
   };
 
   function resolve(q: { table: string; op: string; filters: [string, unknown][]; payload: unknown }) {
@@ -21,6 +23,7 @@ const h = vi.hoisted(() => {
       return { data: null, error: null };
     }
     if (q.table === "branches") return { data: state.branches, error: null };
+    if (q.table === "messages") return { data: state.historial, error: null };
     return { data: [], error: null };
   }
   function builder(table: string) {
@@ -31,6 +34,8 @@ const h = vi.hoisted(() => {
       insert: (p: unknown) => ((q.op = "insert"), (q.payload = p), b),
       maybeSingle: () => Promise.resolve({ data: q.table === "messages" ? state.messageRow : q.table === "conversations" ? state.convRow : q.table === "leads" ? state.leadRow : null, error: null }),
       eq: (k: string, v: unknown) => (q.filters.push([k, v]), b),
+      order: () => b,
+      limit: () => b,
       then: (ok: (v: unknown) => unknown, bad: (e: unknown) => unknown) => Promise.resolve(resolve(q)).then(ok, bad),
     };
     return b;
@@ -63,6 +68,7 @@ const writes = (table: string, op = "update") => h.state.writes.filter((w) => w.
 
 beforeEach(() => {
   h.state.writes = [];
+  h.state.historial = [{ direction: "in", content: "Soy Ana Pérez, quiero mi cita" }];
   h.state.messageRow = null;
   h.state.convRow = null;
   h.state.leadRow = null;
@@ -362,5 +368,28 @@ describe("consultar una hora concreta", () => {
     const ctx = { leadId: "l1", conversationId: "c1", branchId: "b1", handedOff: false };
     const r = await executeTool("get_availability", { date: "2026-09-23", hora: "mediodía" }, ctx);
     expect(r.content).toContain("Hora inválida");
+  });
+});
+
+describe("los campos opcionales aceptan null", () => {
+  it("«promotion_id: null» no rompe el agendamiento (el modelo lo manda así)", async () => {
+    const ctx = { leadId: "l1", conversationId: "c1", branchId: "b1", handedOff: false };
+    const r = await executeTool("book_appointment", { full_name: "Ana Pérez", starts_at: "2099-01-05T15:00", promotion_id: null, contact_phone: null }, ctx);
+    expect(r.content).not.toContain("Faltan datos");
+  });
+
+  it("«franja: null» al consultar la agenda tampoco", async () => {
+    const ctx = { leadId: "l1", conversationId: "c1", branchId: "b1", handedOff: false };
+    const r = await executeTool("get_availability", { date: "2099-01-05", franja: null, hora: null }, ctx);
+    expect(r.content).not.toContain("Fecha inválida");
+  });
+});
+
+describe("el nombre de la cita lo confirma el cliente", () => {
+  it("no agenda con un nombre que el cliente nunca dijo", async () => {
+    h.state.historial = [{ direction: "in", content: "quiero una cita" }];
+    const ctx = { leadId: "l1", conversationId: "c1", branchId: "b1", handedOff: false };
+    const r = await executeTool("book_appointment", { full_name: "Nombre Inventado", starts_at: "2099-01-05T15:00" }, ctx);
+    expect(r.content).toMatch(/pregúntale a nombre de quién|confirme el nombre|preguntado/i);
   });
 });

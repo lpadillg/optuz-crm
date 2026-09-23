@@ -231,7 +231,7 @@ async function respond(ctx: AgentContext): Promise<RunResult> {
     try {
       const libres = await findNextSlots(toolCtx.branchId, limaHoy(), 3, 7);
       if (libres.length >= 2) {
-        const opciones = libres.map((s) => formatLima(new Date(s)).replace(/ de w+/, ""));
+        const opciones = libres.map((s) => formatLima(new Date(s)).replace(/ de \w+/, ""));
         await sendBotOptions(ctx.conversationId, "Estos son los próximos horarios libres. ¿Cuál te acomoda?", opciones, { kind: "options" });
         return { outcome: "reply", detail: "dijo «sin cupo» sin consultar: se enviaron horarios reales", stats };
       }

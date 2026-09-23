@@ -1,6 +1,6 @@
 import "server-only";
 import { z } from "zod";
-import { BookingError, bookAppointment, findNextSlots, getAvailableSlots } from "@/lib/appointments";
+import { BookingError, bookAppointment, cuposLibres, findNextSlots, getAvailableSlots, slotsCercanos } from "@/lib/appointments";
 import { cancelAppointment, listUpcomingAppointments } from "@/lib/appointment-ops";
 import { attentionInfo } from "@/lib/attention";
 import { grantPromotions, revokeAll } from "@/lib/consent";
@@ -15,11 +15,11 @@ import { humanPauseMs } from "@/lib/typing";
  * elección es siempre la misma (mañana/tarde, horarios): así los botones no dependen de que el modelo recuerde
  * llamar a send_options. Si WhatsApp los rechaza, devuelve false y el agente responde con texto normal.
  */
-async function ofrecerBotones(ctx: ToolContext, texto: string, opciones: string[]): Promise<boolean> {
+async function ofrecerBotones(ctx: ToolContext, texto: string, opciones: string[], kind = "options"): Promise<boolean> {
   try {
     const pausa = humanPauseMs(texto);
     if (pausa > 0) await new Promise((r) => setTimeout(r, pausa));
-    await sendBotOptions(ctx.conversationId, texto, opciones, { kind: "options" });
+    await sendBotOptions(ctx.conversationId, texto, opciones, { kind });
     ctx.sentReply = true;
     return true;
   } catch (err) {
@@ -55,7 +55,51 @@ async function sucursalConfirmada(ctx: ToolContext, nombre: string): Promise<boo
   return false;
 }
 
-/** Mañana o tarde, tal como se lo pregunta el agente al cliente. */
+/**
+ * ¿Ya se le preguntó a nombre de quién va ESTA cita? Se pregunta siempre, incluso a un cliente conocido: la
+ * cita puede ser para su hijo, su madre o un amigo, y en la tienda llaman por el nombre que figure. Saber
+ * quién escribe no es saber quién viene.
+ *
+ * Se reconoce por la marca del mensaje, no por su texto: así no depende de cómo lo redacte el modelo.
+ */
+async function pacientePreguntado(ctx: ToolContext): Promise<boolean> {
+  const { data } = await createAdminClient()
+    .from("messages")
+    .select("direction, meta")
+    .eq("conversation_id", ctx.conversationId)
+    .order("created_at", { ascending: false })
+    .limit(14);
+  return (data ?? []).some((m) => m.direction === "out" && (m.meta as { kind?: string } | null)?.kind === "paciente");
+}
+
+/**
+ * ¿El nombre con el que se va a agendar lo dio (o confirmó) el propio cliente en esta conversación? El nombre
+ * del perfil de WhatsApp muchas veces es un apodo o cualquier otra cosa, y en la tienda llaman por ese nombre.
+ */
+async function nombreConfirmado(ctx: ToolContext, fullName: string): Promise<boolean> {
+  const db = createAdminClient();
+  const { data } = await db
+    .from("messages")
+    .select("direction, content")
+    .eq("conversation_id", ctx.conversationId)
+    .order("created_at", { ascending: false })
+    .limit(14);
+  const normal = (t: string) => t.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
+  const partes = normal(fullName).split(/\s+/).filter((p) => p.length >= 3);
+  const msgs = (data ?? []) as { direction: string; content: string | null }[];
+  for (const [i, m] of msgs.entries()) {
+    if (m.direction !== "in") continue;
+    const texto = normal(m.content ?? "");
+    // Lo escribió él (al menos nombre y apellido).
+    if (partes.length >= 2 && partes.every((p) => texto.includes(p))) return true;
+    // O confirmó el que le propusimos.
+    const anterior = msgs[i - 1];
+    if (/^s[ií]/.test(texto) && anterior?.direction === "out" && partes.some((p) => normal(anterior.content ?? "").includes(p))) return true;
+  }
+  return false;
+}
+
+/** Mañana o tarde, tal como se lo pregunta el agente al cliente. Los opcionales aceptan null: el modelo lo manda. */
 const FRANJA = z.enum(["mañana", "tarde"]);
 
 export interface ToolContext {
@@ -118,7 +162,7 @@ export const AGENT_TOOLS: ToolDef[] = [
         hora: {
           type: "string",
           description:
-            "Cuando el cliente pregunta por una hora concreta («¿a las 6 pm hay?»), pásala en formato 24 h (18:00): te respondo si ESA hora está libre y no le envío nada. Es la forma correcta de contestarle: no deduzcas la respuesta de una lista.",
+            "Cuando el cliente pregunta o pide una hora concreta («¿a las 6 pm hay?», «quiero a las 2:30»), pásala en formato 24 h (18:00): te respondo si ESA hora tiene cupo y no le envío nada. Es la forma correcta de contestarle: no deduzcas la respuesta de una lista, porque la lista solo trae horas en punto y una media hora puede estar perfectamente disponible.",
         },
       },
       required: ["date"],
@@ -331,14 +375,14 @@ export async function executeTool(name: string, input: unknown, ctx: ToolContext
           }
         }
       }
-      const parsed = z.object({ date: z.iso.date(), franja: FRANJA.optional(), hora: z.string().regex(/^\d{1,2}:\d{2}$/).optional() }).safeParse(input);
+      const parsed = z.object({ date: z.iso.date(), franja: FRANJA.nullish(), hora: z.string().regex(/^\d{1,2}:\d{2}$/).nullish() }).safeParse(input);
       // El motivo exacto: un «fecha inválida» cuando lo que estaba mal era la hora manda al modelo por el camino equivocado.
       if (!parsed.success) {
         const campo = parsed.error.issues[0]?.path[0];
         return fail(campo === "hora" ? "Hora inválida; usa HH:mm en 24 h (18:00)" : "Fecha inválida; usa YYYY-MM-DD");
       }
       try {
-        const slots = await getAvailableSlots(ctx.branchId, parsed.data.date, 30, parsed.data.franja);
+        const slots = await getAvailableSlots(ctx.branchId, parsed.data.date, 30, parsed.data.franja ?? undefined);
         const libres = slots.map((s) => formatLimaTime(new Date(s)));
 
         // Preguntó por una hora concreta: la respuesta la decide el CÓDIGO, no el modelo. Mirando una lista se
@@ -346,13 +390,19 @@ export async function executeTool(name: string, input: unknown, ctx: ToolContext
         if (parsed.data.hora) {
           const [hh, mm] = parsed.data.hora.split(":");
           const pedida = parseLimaLocal(`${parsed.data.date}T${hh.padStart(2, "0")}:${mm}`);
-          const disponible = !!pedida && slots.some((s) => new Date(s).getTime() === pedida.getTime());
+          if (!pedida) return fail("Hora inválida; usa HH:mm en 24 h (18:00)");
+          // Se mira el cupo de ESA hora, no la lista de sugeridos: la lista solo trae horas en punto para que
+          // la agenda se llene ordenada, pero si el cliente pide él mismo las 2:30 y hay sitio, se le da.
+          const cupos = await cuposLibres(ctx.branchId, pedida);
+          if (cupos > 0) {
+            return json({ hora: parsed.data.hora, disponible: true, siguiente_paso: "SÍ está libre: díselo y agenda esa hora con book_appointment." });
+          }
+          const cercanos = (await slotsCercanos(ctx.branchId, pedida)).map((s) => formatLimaTime(new Date(s)));
           return json({
             hora: parsed.data.hora,
-            disponible,
-            ...(disponible
-              ? { siguiente_paso: "SÍ está libre: díselo y agenda esa hora con book_appointment." }
-              : { alternativas: libres.slice(0, 3), siguiente_paso: "NO está libre: dilo y ofrécele las alternativas." }),
+            disponible: false,
+            alternativas: cercanos.length ? cercanos : libres.slice(0, 3),
+            siguiente_paso: "Esa hora ya está llena. Dilo sin rodeos y ofrécele las alternativas, que son las más cercanas a la que pidió.",
           });
         }
 
@@ -398,12 +448,12 @@ export async function executeTool(name: string, input: unknown, ctx: ToolContext
 
     case "next_available_slots": {
       if (!ctx.branchId) return await pedirSucursal(ctx);
-      const parsed = z.object({ from_date: z.iso.date().optional(), franja: FRANJA.optional() }).safeParse(input);
+      const parsed = z.object({ from_date: z.iso.date().nullish(), franja: FRANJA.nullish() }).safeParse(input);
       if (!parsed.success) return fail("Fecha inválida; usa YYYY-MM-DD");
       const today = limaDateString(new Date());
       const from = parsed.data.from_date && parsed.data.from_date >= today ? parsed.data.from_date : today;
       try {
-        const slots = await findNextSlots(ctx.branchId, from, 3, 7, 30, parsed.data.franja);
+        const slots = await findNextSlots(ctx.branchId, from, 3, 7, 30, parsed.data.franja ?? undefined);
         return json({
           opciones: slots.map((s) => ({ starts_at: toLimaLocal(new Date(s)), cuando: formatLima(new Date(s)) })),
           ...(slots.length === 0 && { nota: `Sin cupo entre ${from} y ${addDays(from, 6)}. Deriva a un asesor.` }),
@@ -419,11 +469,54 @@ export async function executeTool(name: string, input: unknown, ctx: ToolContext
         .object({
           full_name: z.string().trim().min(3),
           starts_at: z.string(),
-          promotion_id: z.uuid().optional(),
-          contact_phone: z.string().optional(),
+          promotion_id: z.uuid().nullish(),
+          contact_phone: z.string().nullish(),
         })
         .safeParse(input);
       if (!parsed.success) return fail("Faltan datos: nombre completo y horario (YYYY-MM-DDTHH:mm)");
+      // Los cuatro datos de una cita: paciente, sucursal, fecha y hora. El nombre tiene que venir del cliente:
+      // el del perfil de WhatsApp puede ser un apodo y en la tienda no encontrarían a quién llamar.
+      const delPerfil = (await db.from("leads").select("nombre").eq("id", ctx.leadId).maybeSingle()).data?.nombre as string | null;
+      const preguntado = await pacientePreguntado(ctx);
+
+      // El nombre tiene que haberlo dicho el cliente en esta conversación.
+      if (!(await nombreConfirmado(ctx, parsed.data.full_name))) {
+        if (delPerfil && pareceNombreReal(delPerfil) && !preguntado) {
+          const enviado = await ofrecerBotones(
+            ctx,
+            `¿La cita es para ti, *${delPerfil}*, o para otra persona?`,
+            [`Sí, ${delPerfil}`.slice(0, 20), "Es para otra persona"],
+            "paciente",
+          );
+          if (enviado) {
+            return json({
+              preguntado: true,
+              siguiente_paso: "Le pregunté a nombre de quién va la cita. NO escribas más en este turno; cuando responda, agenda con el nombre que confirme (si dice que es para otra persona, pídele nombre y apellido de esa persona).",
+            });
+          }
+        }
+        return fail("Antes de agendar pregúntale a nombre de quién va la cita —puede ser para él o para otra persona— y agenda con el nombre y apellido que te responda.");
+      }
+
+      // Aunque el cliente haya dicho su nombre, si el que se va a usar es el suyo y nunca se le preguntó,
+      // hay que confirmarlo: mucha gente agenda para un hijo o para su madre sin decirlo hasta que se pregunta.
+      // Si los botones no se pueden enviar, se sigue adelante: no vale bloquear una cita por eso.
+      const esDelContacto = !!delPerfil && delPerfil.trim().toLowerCase() === parsed.data.full_name.trim().toLowerCase();
+      if (!preguntado && esDelContacto) {
+        const enviado = await ofrecerBotones(
+          ctx,
+          `¿La cita es para ti, *${delPerfil}*, o para otra persona?`,
+          [`Sí, ${delPerfil}`.slice(0, 20), "Es para otra persona"],
+          "paciente",
+        );
+        if (enviado) {
+          return json({
+            preguntado: true,
+            siguiente_paso: "Le pregunté si la cita es para él o para otra persona. NO escribas más en este turno; cuando responda, agenda con el nombre que confirme.",
+          });
+        }
+      }
+
       const startsAt = parseLimaLocal(parsed.data.starts_at);
       if (!startsAt) return fail("Horario inválido; usa YYYY-MM-DDTHH:mm en hora de Lima");
       if (startsAt <= new Date()) return fail("Ese horario ya pasó; ofrece otro");
@@ -447,7 +540,7 @@ export async function executeTool(name: string, input: unknown, ctx: ToolContext
           leadId: ctx.leadId,
           branchId: ctx.branchId,
           startsAt,
-          promotionId: parsed.data.promotion_id,
+          promotionId: parsed.data.promotion_id ?? undefined,
           // Si el nombre no es el del contacto, la cita es para otra persona: se guarda aparte.
           pacienteNombre: esElMismo ? null : parsed.data.full_name,
         });

@@ -2,7 +2,7 @@ import { createReminderTemplate, syncTemplatesAction } from "@/app/(panel)/crm-a
 import { Icon } from "@/components/icons";
 import { env } from "@/lib/env";
 import { requireAdmin } from "@/lib/session";
-import { REMINDER_TEMPLATE } from "@/lib/whatsapp/templates";
+import { TEMPLATE_DEFS } from "@/lib/whatsapp/templates";
 
 const TONE: Record<string, string> = { APPROVED: "ok", PENDING: "warn", IN_APPEAL: "warn", REJECTED: "err", PAUSED: "err", DISABLED: "err" };
 const LABEL: Record<string, string> = { APPROVED: "Aprobada", PENDING: "En revisión", IN_APPEAL: "En apelación", REJECTED: "Rechazada", PAUSED: "Pausada", DISABLED: "Deshabilitada" };
@@ -17,27 +17,34 @@ export default async function TemplatesPage({ searchParams }: { searchParams: Pr
   const ok = typeof sp.ok === "string" ? sp.ok : null;
   const reminder = rows.find((t) => t.name === env.reminderTemplate);
   const configured = Boolean(env.whatsappBusinessAccountId);
+  // Las tres plantillas que el CRM necesita, con lo que hay creado en Meta para cada una.
+  const necesarias = TEMPLATE_DEFS.map((def) => ({ def, fila: rows.find((t) => t.name === def.name) }));
 
   return (
     <div className="page">
       <h1>Plantillas de WhatsApp</h1>
       <div className="page-head">
         <div className="stat-chips">
-          <span className={`stat-chip${reminder?.status === "APPROVED" ? "" : " warn"}`}>
-            Recordatorio de cita: <strong>{reminder ? (LABEL[reminder.status] ?? reminder.status) : "sin crear"}</strong>
-          </span>
+          {necesarias.map(({ def, fila }) => (
+            <span key={def.name} className={`stat-chip${fila?.status === "APPROVED" ? "" : " warn"}`}>
+              <code>{def.name}</code>: <strong>{fila ? (LABEL[fila.status] ?? fila.status) : "sin crear"}</strong>
+            </span>
+          ))}
         </div>
         <span className="spacer" />
         <form action={syncTemplatesAction}>
           <button type="submit" className="ghost" disabled={!configured}>Sincronizar con Meta</button>
         </form>
-        {!reminder && (
-          <form action={createReminderTemplate}>
-            <button type="submit" className="btn primary" disabled={!configured}>
-              <Icon name="mas" size={16} /> Crear plantilla de recordatorio
-            </button>
-          </form>
-        )}
+        {necesarias
+          .filter(({ fila }) => !fila)
+          .map(({ def }) => (
+            <form key={def.name} action={createReminderTemplate}>
+              <input type="hidden" name="name" value={def.name} />
+              <button type="submit" className="btn primary" disabled={!configured}>
+                <Icon name="mas" size={16} /> Crear «{def.name}»
+              </button>
+            </form>
+          ))}
       </div>
       <p className="page-intro">
         WhatsApp solo permite escribirle a un cliente <strong>dentro de las 24 horas</strong> de su último mensaje. Para avisar antes de una cita (casi siempre fuera de ese plazo) se necesita una
@@ -87,9 +94,14 @@ export default async function TemplatesPage({ searchParams }: { searchParams: Pr
       </div>
 
       <details className="card wide" style={{ marginTop: 16 }}>
-        <summary>Ver el texto de la plantilla de recordatorio que se envía a Meta</summary>
-        <p className="muted" style={{ whiteSpace: "pre-wrap", marginTop: 12 }}>{REMINDER_TEMPLATE.body}</p>
-        <p className="hint">Variables: {"{{1}}"} nombre · {"{{2}}"} día · {"{{3}}"} hora · {"{{4}}"} sucursal · {"{{5}}"} dirección. Categoría: utilidad (aviso sobre algo que el cliente ya pidió).</p>
+        <summary>Ver el texto de las plantillas que se envían a Meta</summary>
+        {TEMPLATE_DEFS.map((def) => (
+          <div key={def.name} style={{ marginTop: 12 }}>
+            <code>{def.name}</code>
+            <p className="muted" style={{ whiteSpace: "pre-wrap", marginTop: 4 }}>{def.body}</p>
+            <p className="hint">Ejemplo: {def.examples.join(" · ")}. Categoría: {def.category === "UTILITY" ? "utilidad (aviso sobre algo que el cliente ya pidió)" : "marketing"}.</p>
+          </div>
+        ))}
       </details>
     </div>
   );

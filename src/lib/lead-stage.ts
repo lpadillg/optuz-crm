@@ -65,8 +65,8 @@ export async function refreshLeadStages(): Promise<{ sinRespuesta: number; archi
 
 /**
  * Tras crear, cancelar o marcar una cita, recalcula en qué etapa queda el cliente:
- * con una cita por delante → «Cita agendada»; sin ninguna → vuelve al embudo; atendida → sale del tablero.
- * El no-show NO vuelve al embudo: la cita ocurrió y el tablero ya había cumplido; recuperarlo se hace desde Citas.
+ * con una cita por delante → «Cita agendada»; sin ninguna → vuelve al embudo; atendida → sale del tablero;
+ * no vino → «No asistió», que es una columna aparte para poder recuperarlo.
  */
 export async function syncStageFromAppointments(leadId: string): Promise<void> {
   const db = createAdminClient();
@@ -97,8 +97,11 @@ export async function syncStageFromAppointments(leadId: string): Promise<void> {
     return;
   }
 
-  // No asistió: la cita ocurrió, el embudo ya había cumplido. Se queda como estaba; perseguirlo es cosa de Citas.
-  if (rows.some((a) => a.status === "no_show")) return;
+  // No vino: a su propia columna del tablero, para que alguien le escriba en vez de darlo por perdido.
+  if (rows.some((a) => a.status === "no_show")) {
+    await db.from("leads").update({ stage: "no_asistio", archived_at: null, archive_reason: null }).eq("id", leadId);
+    return;
+  }
 
   // Canceló y no le queda ninguna: hay que volver a conseguir la cita.
   await db.from("leads").update({ stage: "seguimiento" }).eq("id", leadId).eq("stage", "cita_agendada");

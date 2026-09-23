@@ -1122,7 +1122,7 @@ a.kpi:hover { box-shadow: var(--shadow-md); transform: translateY(-1px); border-
 .view-toggle > *:hover { background: var(--panel-2); color: var(--text); }
 .view-toggle > .active { background: var(--brand-soft); color: var(--brand); }
 .board {
-  display: grid; grid-template-columns: repeat(5, minmax(184px, 1fr));
+  display: grid; grid-template-columns: repeat(6, minmax(184px, 1fr));
   gap: 12px; overflow-x: auto; align-items: stretch;
   padding-bottom: 12px;
   /* El alto que queda bajo la barra de herramientas: las columnas llegan al fondo. */
@@ -1152,6 +1152,8 @@ a.kpi:hover { box-shadow: var(--shadow-md); transform: translateY(-1px); border-
 .column.st-seguimiento { --col-accent: #f59e0b; }
 .column.st-sin_respuesta { --col-accent: #94a3b8; }
 .column.st-cita_agendada { --col-accent: #10b981; }
+/* Tuvo cita y no vino: ámbar, porque pide una acción (escribirle), no es un fracaso cerrado. */
+.column.st-no_asistio { --col-accent: #f59e0b; }
 .col-empty {
   display: grid; place-items: center; text-align: center; padding: 20px 8px;
   border: 1px dashed var(--border-strong); border-radius: var(--r);
@@ -1248,6 +1250,24 @@ a.state-dot:hover { transform: scale(1.12); }
 .appt-top { display: flex; align-items: center; gap: 12px; }
 .appt form { display: flex; gap: 8px; align-items: center; }
 .appt form select { flex: 1; width: auto; }
+
+/* Acciones de una cita: el estado siempre a la vista, mover plegado para no competir con él. */
+.appt-actions { display: flex; flex-direction: column; gap: 8px; }
+.appt-actions > form { display: flex; gap: 8px; align-items: center; }
+.mover > summary {
+  cursor: pointer; font-size: 13px; font-weight: 600; color: var(--brand);
+  list-style: none; padding: 4px 0; width: fit-content;
+}
+.mover > summary::-webkit-details-marker { display: none; }
+.mover > summary::before { content: "↔ "; }
+.mover[open] > summary { margin-bottom: 8px; }
+.mover-form {
+  display: grid !important; gap: 10px;
+  background: var(--panel-2); border: 1px solid var(--border); border-radius: var(--r-md); padding: 12px;
+}
+.mover-form label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; font-weight: 600; }
+.mover-form input[type="datetime-local"], .mover-form select { width: 100%; }
+.mover-form button { justify-self: start; }
 
 /* ── Promociones ───────────────────────────────────────────────────────── */
 .promo-title { font-weight: 600; }
@@ -1475,7 +1495,7 @@ label.switch { flex-direction: row; align-items: center; gap: 12px; font-weight:
   .qr-menu { left: 12px; right: 12px; }
   .msg { max-width: 88%; }
 
-  .board { grid-template-columns: repeat(5, 86vw); }
+  .board { grid-template-columns: repeat(6, 86vw); }
   .filters { padding: 10px; }
   .table-wrap { overflow-x: auto; }
   table { min-width: 0; }

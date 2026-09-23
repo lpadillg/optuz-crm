@@ -4,7 +4,7 @@ import { Icon } from "@/components/icons";
 import { requireUser } from "@/lib/session";
 import { horaCorta } from "@/lib/time";
 import { APPOINTMENT_STATUSES, APPOINTMENT_STATUS_LABEL, type AppointmentStatus } from "@/lib/types";
-import { updateAppointmentStatus } from "../actions";
+import { reprogramarCita, updateAppointmentStatus } from "../actions";
 
 const hour = (iso: string) =>
   horaCorta(new Intl.DateTimeFormat("es-PE", { timeZone: "America/Lima", hour: "numeric", minute: "2-digit" }).format(new Date(iso)));
@@ -29,6 +29,17 @@ function pastLabel(iso: string) {
   return `El ${d} a las ${when}`;
 }
 
+/** "YYYY-MM-DDTHH:mm" en hora de Lima, que es lo que espera un <input type="datetime-local">. */
+const localInput = (iso: string) => {
+  const d = new Date(iso);
+  const p = Object.fromEntries(
+    new Intl.DateTimeFormat("en-CA", { timeZone: "America/Lima", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false })
+      .formatToParts(d)
+      .map((x) => [x.type, x.value]),
+  );
+  return `${p.year}-${p.month}-${p.day}T${p.hour === "24" ? "00" : p.hour}:${p.minute}`;
+};
+
 const DAY_MS = 86_400_000;
 /** Cuánto hacia atrás se buscan citas sin marcar. */
 const PENDING_DAYS = 30;
@@ -37,6 +48,7 @@ interface Row {
   id: string;
   scheduled_at: string;
   status: AppointmentStatus;
+  paciente: string | null;
   leads: { nombre: string | null; phone: string | null } | null;
   branches: { nombre: string } | null;
   promotions: { titulo: string } | null;
@@ -52,11 +64,14 @@ export default async function AppointmentsPage({ searchParams }: { searchParams:
   const from = new Date(Date.now() - lookBackDays * DAY_MS).toISOString();
   const { data, error } = await supabase
     .from("appointments")
-    .select("id, scheduled_at, status, leads(nombre, phone), branches(nombre), promotions(titulo)")
+    .select("id, scheduled_at, status, paciente, leads(nombre, phone), branches(nombre), promotions(titulo)")
     .gte("scheduled_at", from)
     .order("scheduled_at", { ascending: true })
     .limit(300);
   if (error) throw error;
+
+  const { data: branchRows } = await supabase.from("branches").select("id, nombre").order("nombre");
+  const branches = (branchRows ?? []) as { id: string; nombre: string }[];
 
   const rows = (data ?? []) as unknown as Row[];
   const now = Date.now();
@@ -277,21 +292,55 @@ export default async function AppointmentsPage({ searchParams }: { searchParams:
                 </div>
                 <div className="inline">
                   <span className="tag">{a.branches?.nombre}</span>
+                  {/* Quien viene no siempre es quien escribe: una madre agenda para su hija. */}
+                  {a.paciente && a.paciente !== a.leads?.nombre && <span className="tag">Atiende a {a.paciente}</span>}
                   {a.promotions?.titulo && <span className="tag ok">{a.promotions.titulo}</span>}
                 </div>
-                <form action={updateAppointmentStatus}>
-                  <input type="hidden" name="id" value={a.id} />
-                  <select name="status" defaultValue={a.status} aria-label={`Estado de la cita de ${a.leads?.nombre ?? "el cliente"}`}>
-                    {APPOINTMENT_STATUSES.map((s) => (
-                      <option key={s} value={s}>
-                        {APPOINTMENT_STATUS_LABEL[s]}
-                      </option>
-                    ))}
-                  </select>
-                  <button type="submit" className="ghost btn-sm">
-                    Guardar
-                  </button>
-                </form>
+                <div className="appt-actions">
+                  <form action={updateAppointmentStatus}>
+                    <input type="hidden" name="id" value={a.id} />
+                    <select name="status" defaultValue={a.status} aria-label={`Estado de la cita de ${a.leads?.nombre ?? "el cliente"}`}>
+                      {APPOINTMENT_STATUSES.map((s) => (
+                        <option key={s} value={s}>
+                          {APPOINTMENT_STATUS_LABEL[s]}
+                        </option>
+                      ))}
+                    </select>
+                    <button type="submit" className="ghost btn-sm">
+                      Guardar
+                    </button>
+                  </form>
+                  {!passed(a) && a.status !== "cancelada" && (
+                    <details className="mover">
+                      <summary>Mover</summary>
+                      <form action={reprogramarCita} className="mover-form">
+                        <input type="hidden" name="id" value={a.id} />
+                        <label>
+                          Nueva fecha y hora
+                          <input type="datetime-local" name="starts_at" defaultValue={localInput(a.scheduled_at)} step={1800} required />
+                        </label>
+                        <label>
+                          Sucursal
+                          <select name="branch_id" defaultValue="">
+                            <option value="">La misma ({a.branches?.nombre})</option>
+                            {branches.map((b) => (
+                              <option key={b.id} value={b.id}>
+                                {b.nombre}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <label className="check">
+                          <input type="checkbox" name="avisar" value="1" defaultChecked />
+                          Avisarle por WhatsApp
+                        </label>
+                        <button type="submit" className="btn-sm">
+                          Mover cita
+                        </button>
+                      </form>
+                    </details>
+                  )}
+                </div>
               </article>
             ))}
           </div>

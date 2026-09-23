@@ -229,3 +229,49 @@ describe("reclamo del cliente (en vivo)", () => {
     expect(/frustrada|preocupada|molesta\b|frustrado|preocupado|molesto\b/i.test(t)).toBe(false);
   }, 60_000);
 });
+
+describe("reparaciones sin cita (en vivo)", () => {
+  it("una reparación no termina ofreciendo agendar: se acerca a la tienda", async () => {
+    h.executeTool.mockClear();
+    h.executeTool.mockImplementation(async () => ({ content: "{}" }));
+
+    const t = await responder("Pregunta por reparar una varilla", BRANCHES[1], "Se me rompió el bracito de mis lentes, ¿lo pueden cambiar?");
+    expect(h.executeTool.mock.calls.map((c) => c[0])).not.toContain("book_appointment");
+    // Ni cierra proponiendo cita: para una reparación basta con acercarse.
+    expect(/agendar (tu )?(cita|evaluaci[óo]n)|\bagendamos\b/i.test(t)).toBe(false);
+  }, 60_000);
+});
+
+describe("responder a lo último que preguntó (en vivo)", () => {
+  it("cambia de tema con el cliente: pregunta por el tornillo, no se queda en la varilla", async () => {
+    h.executeTool.mockClear();
+    h.executeTool.mockImplementation(async () => ({ content: "{}" }));
+
+    const t = await responder(
+      "Cambia de repuesto a media conversación",
+      BRANCHES[1],
+      "Se me rompió el bracito de mis lentes",
+      "Se me salió el pernito... ¿reparan eso?",
+    );
+    expect(/pernito|tornillo|perno/i.test(t)).toBe(true);
+    expect(/bracito|varilla|flex/i.test(t)).toBe(false);
+  }, 60_000);
+});
+
+describe("costo de una reparación (en vivo)", () => {
+  it("un tornillo no se deriva a un asesor: es mantenimiento gratuito", async () => {
+    h.executeTool.mockClear();
+    h.executeTool.mockImplementation(async () => ({ content: "{}" }));
+
+    const t = await responder(
+      "Pregunta el costo de poner un tornillo",
+      BRANCHES[1],
+      "Se me salió el pernito de mis lentes",
+      "¿A cómo está esa reparación?",
+    );
+    expect(h.executeTool.mock.calls.map((c) => c[0])).not.toContain("handoff_to_human");
+    expect(/gratis|gratuit|sin costo|no tiene costo/i.test(t)).toBe(true);
+    // Y para quien no compró aquí: el precio se ve en la tienda, no se deja al aire.
+    expect(/tienda|revisar|visita/i.test(t)).toBe(true);
+  }, 60_000);
+});

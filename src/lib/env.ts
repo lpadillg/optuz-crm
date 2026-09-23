@@ -83,4 +83,6 @@ export const env = {
   get maxActiveAppointments() { const n = Number(process.env.MAX_ACTIVE_APPOINTMENTS); return Number.isFinite(n) && process.env.MAX_ACTIVE_APPOINTMENTS ? Math.max(1, n) : 3; },
   /** Cuántas citas puede crear un mismo cliente en un día (freno a agendar y cancelar en bucle). 0 = sin tope. */
   get maxAppointmentsPerDay() { const n = Number(process.env.MAX_APPOINTMENTS_PER_DAY); return Number.isFinite(n) && process.env.MAX_APPOINTMENTS_PER_DAY ? Math.max(0, n) : 3; },
+  /** Cuántas citas caben a la misma hora en una sucursal: tantas como personas atiendan a la vez. */
+  get slotCapacity() { const n = Number(process.env.APPOINTMENT_SLOT_CAPACITY); return Number.isFinite(n) && process.env.APPOINTMENT_SLOT_CAPACITY ? Math.max(1, n) : 3; },
 };
