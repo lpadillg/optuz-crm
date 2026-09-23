@@ -240,6 +240,20 @@ async function respond(ctx: AgentContext): Promise<RunResult> {
     }
   }
 
+  // Confirmar la tienda también se toca, no se escribe. El modelo lo pide en texto cuando no ha consultado la
+  // agenda, y el cliente acaba teniendo que teclear el nombre de su sucursal.
+  const suya = tiendas.find((t) => toolCtx.branchId && text.includes(t.title));
+  const pideConfirmarTienda =
+    !!suya && !nombraVariasTiendas && text.includes("?") && /(sucursal|tienda)/i.test(text) && /(confirm|te agendo|te queda|correcto|es esa|esa es)/i.test(text);
+  if (pideConfirmarTienda && !toolCtx.handedOff) {
+    try {
+      await sendBotOptions(ctx.conversationId, `¿Te agendo en nuestra tienda de ${suya!.title}?`, [`Sí, en ${suya!.title}`, "En otra tienda"], { kind: "options" });
+      return { outcome: "reply", detail: "confirmación de tienda con botones", stats };
+    } catch (err) {
+      console.error("[agent] no se pudo enviar la confirmación de tienda; va como texto", err);
+    }
+  }
+
   // «¿Mañana o tarde?» también sale tocable. El modelo la escribe en texto cuando no ha consultado la agenda
   // todavía, y entonces el cliente tiene que responder escribiendo.
   const preguntaFranja = text.includes("?") && /(en|por|de) la ma[ñn]ana/i.test(text) && /(en|por|de) la tarde/i.test(text);

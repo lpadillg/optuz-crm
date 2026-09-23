@@ -438,3 +438,15 @@ describe("no decir «no hay cupo» sin mirar la agenda", () => {
     expect(h.send).toHaveBeenCalledTimes(1);
   }, 20_000);
 });
+
+describe("confirmar la tienda", () => {
+  it("si la pregunta va en texto, sale con botones", async () => {
+    h.create.mockResolvedValueOnce(textReply("¿Te confirmo la cita en la sucursal Huánuco?\nJr. 28 de Julio 1131"));
+    await runAgent(ctx);
+
+    expect(h.sendOptions).toHaveBeenCalledTimes(1);
+    const [, texto, opciones] = h.sendOptions.mock.calls[0];
+    expect(texto).toBe("¿Te agendo en nuestra tienda de Huánuco?");
+    expect(opciones).toEqual(["Sí, en Huánuco", "En otra tienda"]);
+  }, 20_000);
+});

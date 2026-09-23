@@ -145,6 +145,8 @@ export async function findNextSlots(
 }
 
 export interface BookInput {
+  /** Quién viene a la cita, si no es el propio contacto (un hijo, un familiar). */
+  pacienteNombre?: string | null;
   leadId: string;
   branchId: string;
   tipoServicio?: ServiceType;
@@ -194,6 +196,7 @@ export async function bookAppointment(input: BookInput) {
       promotion_id: promotion?.id ?? null,
       scheduled_at: input.startsAt.toISOString(),
       duration_minutes: duration,
+      paciente: input.pacienteNombre?.trim() || null,
     })
     .select("id")
     .single();
@@ -206,7 +209,7 @@ export async function bookAppointment(input: BookInput) {
   try {
     eventId = await createCalendarEvent({
       calendarId: branch.google_calendar_id,
-      summary: `${SERVICE_LABEL[tipo]} — ${lead.nombre ?? lead.phone ?? "Cliente de WhatsApp"}`,
+      summary: `${SERVICE_LABEL[tipo]} — ${input.pacienteNombre || lead.nombre || lead.phone || "Cliente de WhatsApp"}`,
       description:
         `Lead: ${lead.nombre ?? "(sin nombre)"}\nTeléfono: ${lead.phone ?? "no disponible (usuario de WhatsApp sin número visible)"}` +
         (promotion ? `\nPromoción: ${promotion.titulo}` : "") +

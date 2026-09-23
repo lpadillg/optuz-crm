@@ -51,7 +51,13 @@ async function responder(titulo: string, branch: (typeof BRANCHES)[number] | nul
     branchId: null,
     handedOff: false,
   });
-  const texto = out.kind === "reply" ? out.text : `(${out.kind})`;
+  // Si respondió con botones, en producción el texto final se descarta: lo que «dice» es el mensaje de las
+  // opciones. Mirar solo el texto penalizaba a los modelos que SÍ usan las herramientas.
+  const conOpciones = h.executeTool.mock.calls
+    .filter((c) => c[0] === "send_options")
+    .map((c) => JSON.stringify(c[1]))
+    .join(" ");
+  const texto = (out.kind === "reply" ? out.text : `(${out.kind})`).trim() || conOpciones;
   if (SALIDA) fs.appendFileSync(SALIDA, `\n══ ${titulo}\n[cliente] ${mensajes.at(-1)}\n[bot]\n${texto}\n`);
   return texto;
 }
@@ -112,7 +118,7 @@ describe("elegir horario (en vivo)", () => {
       return { content: "{}" };
     });
 
-    const t = await responder("Pide cita sin decir hora", BRANCHES[1], "Hola, quiero agendar mi evaluación para mañana");
+    const t = await responder("Pide cita sin decir hora", BRANCHES[1], "Hola, quiero agendar mi evaluación para mañana", "Sí, en Huánuco");
     const llamadas = h.executeTool.mock.calls.map((c) => ({ nombre: c[0] as string, args: JSON.stringify(c[1]) }));
     const opciones = llamadas.find((c) => c.nombre === "send_options")?.args ?? "";
     const preguntaFranja = /ma[ñn]ana/i.test(opciones) && /tarde/i.test(opciones);
@@ -139,6 +145,7 @@ describe("preguntar por una hora concreta (en vivo)", () => {
       "Pregunta por una hora suelta",
       BRANCHES[1],
       "Quiero cita para mañana en la tarde",
+      "Sí, en Huánuco",
       "Para las 6pm no hay?",
     );
     // Tiene que preguntar POR ESA HORA (no deducirla de una lista) y no negarla.

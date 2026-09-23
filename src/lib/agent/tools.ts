@@ -7,6 +7,7 @@ import { grantPromotions, revokeAll } from "@/lib/consent";
 import { sendBotOptions } from "@/lib/outbound";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { addDays, formatLima, formatLimaTime, limaDateString, parseLimaLocal } from "@/lib/time";
+import { pareceNombreReal } from "@/lib/nombre";
 import { humanPauseMs } from "@/lib/typing";
 
 /**
@@ -25,6 +26,33 @@ async function ofrecerBotones(ctx: ToolContext, texto: string, opciones: string[
     console.error("[agente] no se pudieron enviar los botones; se responderá con texto", err);
     return false;
   }
+}
+
+/**
+ * ¿El cliente confirmó su sucursal EN ESTA conversación? La que tenemos guardada puede ser de hace meses: la
+ * gente se muda, viaja o pregunta por otra tienda, y mandarlo a la equivocada es un viaje perdido.
+ * Cuenta como confirmada si nombró la tienda, o si respondió «sí» a la pregunta de confirmación.
+ */
+async function sucursalConfirmada(ctx: ToolContext, nombre: string): Promise<boolean> {
+  const db = createAdminClient();
+  const { data } = await db
+    .from("messages")
+    .select("direction, content")
+    .eq("conversation_id", ctx.conversationId)
+    .order("created_at", { ascending: false })
+    .limit(12);
+  const normal = (t: string) => t.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+  const tienda = normal(nombre);
+  const msgs = (data ?? []) as { direction: string; content: string | null }[];
+  for (const [i, m] of msgs.entries()) {
+    if (m.direction !== "in") continue;
+    const texto = normal(m.content ?? "");
+    if (texto.includes(tienda)) return true;
+    // «Sí» justo después de que el bot preguntara si la agendamos en esa tienda.
+    const anterior = msgs[i - 1];
+    if (/^s[ií]/.test(texto) && anterior?.direction === "out" && normal(anterior.content ?? "").includes("en otra tienda")) return true;
+  }
+  return false;
 }
 
 /** Mañana o tarde, tal como se lo pregunta el agente al cliente. */
@@ -289,6 +317,20 @@ export async function executeTool(name: string, input: unknown, ctx: ToolContext
 
     case "get_availability": {
       if (!ctx.branchId) return await pedirSucursal(ctx);
+      // Confirmar la tienda una vez por conversación, antes de ofrecer horarios.
+      {
+        const { data: suc } = await db.from("branches").select("nombre").eq("id", ctx.branchId).maybeSingle();
+        const nombre = (suc?.nombre as string | undefined) ?? "";
+        if (nombre && !(await sucursalConfirmada(ctx, nombre))) {
+          const enviado = await ofrecerBotones(ctx, `¿Te agendo en nuestra tienda de ${nombre}?`, [`Sí, en ${nombre}`, "En otra tienda"]);
+          if (enviado) {
+            return json({
+              preguntado: true,
+              siguiente_paso: "Le pregunté si la cita es en esa tienda. NO escribas más en este turno; cuando responda, sigue con los horarios o cambia la sucursal con set_branch.",
+            });
+          }
+        }
+      }
       const parsed = z.object({ date: z.iso.date(), franja: FRANJA.optional(), hora: z.string().regex(/^\d{1,2}:\d{2}$/).optional() }).safeParse(input);
       // El motivo exacto: un «fecha inválida» cuando lo que estaba mal era la hora manda al modelo por el camino equivocado.
       if (!parsed.success) {
@@ -386,7 +428,14 @@ export async function executeTool(name: string, input: unknown, ctx: ToolContext
       if (!startsAt) return fail("Horario inválido; usa YYYY-MM-DDTHH:mm en hora de Lima");
       if (startsAt <= new Date()) return fail("Ese horario ya pasó; ofrece otro");
 
-      await db.from("leads").update({ nombre: parsed.data.full_name }).eq("id", ctx.leadId);
+      // El nombre de la cita NO pisa el del contacto: una madre que agenda para su hija dejaba su propio WhatsApp
+      // registrado con el nombre de la hija. Solo se completa si el contacto no tiene un nombre usable.
+      const { data: actual } = await db.from("leads").select("nombre").eq("id", ctx.leadId).maybeSingle();
+      const nombreContacto = (actual?.nombre as string | null) ?? null;
+      const esElMismo = !nombreContacto || nombreContacto.trim().toLowerCase() === parsed.data.full_name.trim().toLowerCase();
+      if (!pareceNombreReal(nombreContacto)) {
+        await db.from("leads").update({ nombre: parsed.data.full_name }).eq("id", ctx.leadId);
+      }
       // Cliente sin número visible: guardar el teléfono que dio (solo si el lead no tiene uno y es válido).
       const digits = parsed.data.contact_phone?.replace(/\D/g, "") ?? "";
       if (/^\d{7,15}$/.test(digits)) {
@@ -399,6 +448,8 @@ export async function executeTool(name: string, input: unknown, ctx: ToolContext
           branchId: ctx.branchId,
           startsAt,
           promotionId: parsed.data.promotion_id,
+          // Si el nombre no es el del contacto, la cita es para otra persona: se guarda aparte.
+          pacienteNombre: esElMismo ? null : parsed.data.full_name,
         });
         return json({
           agendada: true,
