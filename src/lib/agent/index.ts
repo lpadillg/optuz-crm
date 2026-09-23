@@ -209,6 +209,21 @@ async function respond(ctx: AgentContext): Promise<RunResult> {
   // al tocar la suya, queda elegida. El modelo las escribe en texto y le obliga a teclear el nombre.
   const tiendas = (branchRows ?? []).map((b) => ({ title: b.nombre as string, description: b.direccion as string }));
   const nombraVariasTiendas = tiendas.filter((t) => text.includes(t.title)).length >= 2;
+
+  // Preguntar «¿en qué sucursal?» sin poner las tiendas obliga al cliente a teclear el nombre de una de las
+  // cinco, y a acertar con la tilde. Si el modelo pregunta por la sucursal y todavía no sabemos cuál es la
+  // suya, la lista sale igualmente: las opciones las decide el código, no lo que el modelo recuerde escribir.
+  const preguntaLaSucursal =
+    !toolCtx.branchId && !nombraVariasTiendas && text.includes("?") && /(en qué|en que|cuál|cual|qué|que) (sucursal|tienda)/i.test(text);
+  if (!toolCtx.handedOff && preguntaLaSucursal && tiendas.length >= 2) {
+    try {
+      await sendBotOptions(ctx.conversationId, "¿Cuál sucursal te queda más cerca?", tiendas, { kind: "options" });
+      return { outcome: "reply", detail: "sucursal preguntada con la lista de tiendas", stats };
+    } catch (err) {
+      console.error("[agent] no se pudo enviar la lista de tiendas; va como texto", err);
+    }
+  }
+
   if (!toolCtx.handedOff && nombraVariasTiendas) {
     try {
       // Como encabezado, la frase del modelo que no es parte del listado («Claro, aquí tienes nuestras tiendas»).
