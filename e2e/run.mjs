@@ -788,8 +788,14 @@ check("inbox: un filtro que dejaría la lista vacía sale deshabilitado (sumado 
 await p.getByRole("button", { name: "Mías", exact: true }).click();
 check("inbox: ...y sigue deshabilitado al quitar «Mías», porque no hay ningún chat sin asignar", await p.getByRole("button", { name: "Sin asignar", exact: true }).isDisabled());
 await p.locator(".chip-btn", { hasText: "Todas" }).first().click();
-await p.getByPlaceholder("Buscar chat…").fill("zzzz");
+const buscador = p.getByPlaceholder("Buscar por nombre, teléfono o mensaje…");
+await buscador.fill("zzzz");
 check("inbox: la búsqueda sin coincidencias muestra «Sin resultados»", await p.getByText("Sin resultados").isVisible());
+// En español se teclea sin acentos: «huanuco» tiene que encontrar «Huánuco».
+await buscador.fill("carla");
+check("inbox: la búsqueda encuentra por nombre", await p.locator(".conv", { hasText: "Carla" }).isVisible({ timeout: 5000 }).catch(() => false));
+await p.getByRole("button", { name: "Limpiar búsqueda" }).click();
+check("inbox: el botón de limpiar vacía la búsqueda y devuelve la lista", (await buscador.inputValue()) === "" && (await p.locator(".conv").count()) > 0);
 await q(db.from("conversations").update({ bot_active: true, assigned_to: null }).eq("id", conv.id));
 
 // Conocimiento del agente

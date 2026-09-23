@@ -647,7 +647,6 @@ td.cell-main { font-weight: 500; }
   font-size: 12.5px; padding: 3px 8px; border-radius: 99px;
   border: 1px solid var(--border); background: var(--panel); color: var(--text-2); max-width: 190px;
 }
-.conv-head .title .search-pill { flex: 1; min-width: 150px; }
 
 /* Lista de chats */
 .conv-list { overflow-y: auto; min-height: 0; border-right: 1px solid var(--border); display: flex; flex-direction: column; }
@@ -662,12 +661,22 @@ td.cell-main { font-weight: 500; }
 .search-pill {
   display: flex; align-items: center; gap: 8px;
   background: var(--panel-2); border: 1px solid var(--border);
-  border-radius: 99px; padding: 0 13px; color: var(--muted);
+  border-radius: 99px; padding: 0 6px 0 13px; color: var(--muted);
   transition: border-color 0.15s, box-shadow 0.15s, background-color 0.15s;
 }
 .search-pill:focus-within { border-color: var(--brand); background: var(--panel); box-shadow: var(--ring); }
-.search-pill input { border: 0; background: transparent; padding: 7px 0; box-shadow: none; }
+.search-pill:focus-within > svg { color: var(--brand); }
+.search-pill input { flex: 1; min-width: 0; border: 0; background: transparent; padding: 8px 0; box-shadow: none; font-size: 13.5px; }
 .search-pill input:hover, .search-pill input:focus { border: 0; box-shadow: none; }
+.search-pill input::placeholder { color: var(--muted); }
+/* Botón propio para vaciar: la «x» que pinta el navegador cambia en cada uno y no se puede estilar. */
+.search-clear {
+  flex: none; width: 22px; height: 22px; padding: 0; border: 0; border-radius: 99px;
+  background: var(--border); color: var(--text-2);
+  font-size: 15px; line-height: 1; cursor: pointer;
+  display: grid; place-items: center;
+}
+.search-clear:hover { background: var(--border-strong); color: var(--text); }
 .conv {
   display: flex; gap: 11px;
   margin: 2px 8px; padding: 10px 12px;

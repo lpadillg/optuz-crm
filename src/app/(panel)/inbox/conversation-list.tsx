@@ -21,6 +21,12 @@ export interface ConversationItem {
   assignee: { nombre: string } | null;
 }
 
+/**
+ * Para buscar: sin tildes y en minúsculas. En español la gente escribe «garantia» o «huanuco» sin acento, y
+ * sin esto la búsqueda no encuentra nada aunque el texto esté ahí.
+ */
+const sinTildes = (t: string) => t.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
+
 type FilterId = "esperando" | "humano" | "mias" | "sin_asignar" | "pausado" | "recientes";
 
 /**
@@ -75,6 +81,20 @@ export function ConversationList({ items, userId }: { items: ConversationItem[];
   const [active, setActive] = useState<FilterId[]>(() => (items.some((c) => c.last_message_sender === "lead") ? ["esperando"] : []));
   const [branch, setBranch] = useState<string | null>(null);
   const [q, setQ] = useState("");
+  const buscador = useRef<HTMLInputElement>(null);
+
+  // Ctrl/Cmd+K enfoca el buscador desde cualquier sitio del inbox: es el atajo que la gente ya trae aprendido.
+  useEffect(() => {
+    const atajo = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        buscador.current?.focus();
+        buscador.current?.select();
+      }
+    };
+    window.addEventListener("keydown", atajo);
+    return () => window.removeEventListener("keydown", atajo);
+  }, []);
   // Reloj para el «esperando hace N min» de los chats pendientes.
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -106,12 +126,12 @@ export function ConversationList({ items, userId }: { items: ConversationItem[];
     filters.every((f) => matches(c, f, userId)) && (!branch || c.leads?.branches?.nombre === branch);
 
   const visible = useMemo(() => {
-    const term = q.trim().toLowerCase();
+    const term = sinTildes(q);
     return items
       .filter((c) => {
         if (!passes(c, active)) return false;
         if (!term) return true;
-        const hay = `${c.leads?.nombre ?? ""} ${c.leads?.phone ?? ""} ${c.last_message_preview}`.toLowerCase();
+        const hay = sinTildes(`${c.leads?.nombre ?? ""} ${c.leads?.phone ?? ""} ${c.last_message_preview}`);
         return hay.includes(term);
       })
       // Primero quien espera a una persona, después quien espera respuesta, y dentro de cada grupo lo más reciente.
@@ -154,11 +174,25 @@ export function ConversationList({ items, userId }: { items: ConversationItem[];
           <div className="title">
             <strong>Chats</strong>
             <span className="muted">{visible.length}</span>
-            <span className="spacer" />
-            <div className="search-pill">
-              <Icon name="buscar" size={16} />
-              <input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar chat…" aria-label="Buscar chat" />
-            </div>
+          </div>
+
+          {/* Su propia fila: metido junto al título peleaba por el ancho de una columna estrecha. */}
+          <div className="search-pill">
+            <Icon name="buscar" size={16} />
+            <input
+              ref={buscador}
+              type="text"
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              onKeyDown={(e) => e.key === "Escape" && setQ("")}
+              placeholder="Buscar por nombre, teléfono o mensaje…"
+              aria-label="Buscar chat"
+            />
+            {q && (
+              <button type="button" className="search-clear" onClick={() => { setQ(""); buscador.current?.focus(); }} aria-label="Limpiar búsqueda">
+                ×
+              </button>
+            )}
           </div>
 
           <div className="conv-filters" role="group" aria-label="Filtros">
