@@ -18,7 +18,8 @@
     "db:reset": "supabase db reset",
     "test:e2e:safe": "node scripts/e2e-safe.mjs",
     "google": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/google-setup.mjs",
-    "test:google": "node ./node_modules/vitest/vitest.mjs run --config vitest.google.config.mts"
+    "test:google": "node ./node_modules/vitest/vitest.mjs run --config vitest.google.config.mts",
+    "tunel": "node --env-file=.env.local scripts/tunel.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.7",
