@@ -102,6 +102,36 @@ async function pacientePreguntado(ctx: ToolContext): Promise<boolean> {
 }
 
 /**
+ * ¿El cliente tiene ya una cita próxima en una sucursal distinta de la que se va a agendar ahora? Devuelve
+ * cómo se llaman las dos tiendas, para poder preguntárselo con sus nombres y no en abstracto.
+ */
+async function citaEnOtraSucursal(ctx: ToolContext): Promise<{ sucursal: string; nueva: string } | null> {
+  if (!ctx.branchId) return null;
+  const db = createAdminClient();
+  const { data } = await db
+    .from("appointments")
+    .select("branch_id, branches(nombre)")
+    .eq("lead_id", ctx.leadId)
+    .in("status", ["agendada", "confirmada"])
+    .gte("scheduled_at", new Date().toISOString())
+    .neq("branch_id", ctx.branchId)
+    .limit(1);
+  const otra = (data ?? [])[0];
+  if (!otra) return null;
+  const { data: nueva } = await db.from("branches").select("nombre").eq("id", ctx.branchId).maybeSingle();
+  return {
+    sucursal: (otra.branches as unknown as { nombre: string } | null)?.nombre ?? "otra tienda",
+    nueva: (nueva?.nombre as string) ?? "esta",
+  };
+}
+
+/** ¿Ya se le avisó, en este intento, de que tiene una cita en otra tienda? No se pregunta dos veces. */
+async function yaAvisadoDeOtraSede(ctx: ToolContext): Promise<boolean> {
+  const msgs = await historialDelIntento(ctx, 14);
+  return msgs.some((m) => m.direction === "out" && (m.meta as { kind?: string } | null)?.kind === "otra_sede");
+}
+
+/**
  * ¿El cliente escribió ese nombre —o parte de él— en esta conversación? Más flojo que `nombreConfirmado`
  * a propósito: sirve para saber si ya dijo A QUIÉN se agenda, aunque diera un nombre suelto o un apodo y
  * falte el apellido.
@@ -591,6 +621,25 @@ export async function executeTool(name: string, input: unknown, ctx: ToolContext
       const startsAt = parseLimaLocal(parsed.data.starts_at);
       if (!startsAt) return fail("Horario inválido; usa YYYY-MM-DDTHH:mm en hora de Lima");
       if (startsAt <= new Date()) return fail("Ese horario ya pasó; ofrece otro");
+
+      // Lo normal es que un cliente agende en una sola tienda. Si ya tiene cita en otra, casi siempre es que
+      // se equivocó de sucursal al elegir, así que se le pregunta antes. No se bloquea: llevar a un familiar
+      // a otra tienda es legítimo, y perder esa cita por una regla sería peor que el error que evita.
+      const otraSede = await citaEnOtraSucursal(ctx);
+      if (otraSede && !(await yaAvisadoDeOtraSede(ctx))) {
+        const enviado = await ofrecerBotones(
+          ctx,
+          `Ojo: ya tienes una cita en nuestra tienda de *${otraSede.sucursal}*. ¿Esta la agendo en *${otraSede.nueva}*?`,
+          [`Sí, en ${otraSede.nueva}`.slice(0, 20), `Mejor en ${otraSede.sucursal}`.slice(0, 20)],
+          "otra_sede",
+        );
+        if (enviado) {
+          return json({
+            preguntado: true,
+            siguiente_paso: `Le avisé de que ya tiene una cita en ${otraSede.sucursal} y le pregunté en cuál quiere esta. NO escribas más en este turno; cuando responda, agenda donde diga (si elige la otra tienda, usa set_branch antes).`,
+          });
+        }
+      }
 
       // El nombre de la cita NO pisa el del contacto: una madre que agenda para su hija dejaba su propio WhatsApp
       // registrado con el nombre de la hija. Solo se completa si el contacto no tiene un nombre usable.

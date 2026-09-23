@@ -15,6 +15,8 @@ const h = vi.hoisted(() => {
     leadRow: null as { tags: string[] } | null,
     /** Mensajes del chat, de lo más nuevo a lo más viejo: de ahí sale si el cliente dio su nombre o la tienda. */
     historial: [] as { direction: string; content: string }[],
+    /** Citas próximas del cliente en OTRA sucursal (para avisarle antes de agendar donde no toca). */
+    citasEnOtraSede: [] as { branch_id: string; branches: { nombre: string } }[],
   };
 
   function resolve(q: { table: string; op: string; filters: [string, unknown][]; payload: unknown }) {
@@ -24,6 +26,7 @@ const h = vi.hoisted(() => {
     }
     if (q.table === "branches") return { data: state.branches, error: null };
     if (q.table === "messages") return { data: state.historial, error: null };
+    if (q.table === "appointments") return { data: state.citasEnOtraSede, error: null };
     return { data: [], error: null };
   }
   function builder(table: string) {
@@ -34,6 +37,9 @@ const h = vi.hoisted(() => {
       insert: (p: unknown) => ((q.op = "insert"), (q.payload = p), b),
       maybeSingle: () => Promise.resolve({ data: q.table === "messages" ? state.messageRow : q.table === "conversations" ? state.convRow : q.table === "leads" ? state.leadRow : null, error: null }),
       eq: (k: string, v: unknown) => (q.filters.push([k, v]), b),
+      neq: (k: string, v: unknown) => (q.filters.push([k, v]), b),
+      in: (k: string, v: unknown) => (q.filters.push([k, v]), b),
+      gte: (k: string, v: unknown) => (q.filters.push([k, v]), b),
       order: () => b,
       limit: () => b,
       then: (ok: (v: unknown) => unknown, bad: (e: unknown) => unknown) => Promise.resolve(resolve(q)).then(ok, bad),
@@ -431,5 +437,42 @@ describe("volver a pedir cita reinicia lo confirmado", () => {
     ];
     const r = await executeTool("book_appointment", { full_name: "Ana Pérez", starts_at: "2099-01-05T15:00" }, ctx());
     expect(r.content).not.toMatch(/pregúntale a nombre de quién/i);
+  });
+});
+
+/**
+ * Lo normal es que un cliente agende en una sola tienda, así que tener cita en otra suele ser que se
+ * equivocó al elegir. Se le avisa, pero NO se le bloquea: llevar a un familiar a otra sucursal es legítimo,
+ * y perder esa cita por una regla sería peor que el error que evita.
+ */
+describe("ya tiene cita en otra sucursal", () => {
+  const ctx = () => ({ leadId: "l1", conversationId: "c1", branchId: "b1", handedOff: false });
+  const listo = [{ direction: "in" as const, content: "Soy Ana Pérez" }];
+
+  it("avisa con botones, nombrando las dos tiendas, antes de agendar", async () => {
+    h.state.historial = listo;
+    h.state.citasEnOtraSede = [{ branch_id: "b2", branches: { nombre: "Tingo María" } }];
+    const r = await executeTool("book_appointment", { full_name: "Ana Pérez", starts_at: "2099-01-05T15:00" }, ctx());
+    const enviado = h.sendBotOptions.mock.calls.at(-1);
+    expect(enviado?.[1]).toMatch(/Tingo María/);
+    expect(r.content).toContain("preguntado");
+  });
+
+  it("no vuelve a avisar si ya se le preguntó en este intento", async () => {
+    h.state.historial = [...listo, { direction: "out", content: "¿Esta la agendo…?", meta: { kind: "otra_sede" } } as never];
+    h.state.citasEnOtraSede = [{ branch_id: "b2", branches: { nombre: "Tingo María" } }];
+    h.sendBotOptions.mockClear();
+    await executeTool("book_appointment", { full_name: "Ana Pérez", starts_at: "2099-01-05T15:00" }, ctx());
+    const preguntas = h.sendBotOptions.mock.calls.filter((c) => /Esta la agendo/.test(String(c[1])));
+    expect(preguntas).toHaveLength(0);
+  });
+
+  it("sin cita en otra sucursal, no molesta con nada", async () => {
+    h.state.historial = listo;
+    h.state.citasEnOtraSede = [];
+    h.sendBotOptions.mockClear();
+    await executeTool("book_appointment", { full_name: "Ana Pérez", starts_at: "2099-01-05T15:00" }, ctx());
+    const preguntas = h.sendBotOptions.mock.calls.filter((c) => /Esta la agendo/.test(String(c[1])));
+    expect(preguntas).toHaveLength(0);
   });
 });
