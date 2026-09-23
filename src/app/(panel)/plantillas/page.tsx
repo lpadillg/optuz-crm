@@ -3,6 +3,7 @@ import { Icon } from "@/components/icons";
 import { env } from "@/lib/env";
 import { requireAdmin } from "@/lib/session";
 import { TEMPLATE_DEFS } from "@/lib/whatsapp/templates";
+import { NuevaPlantilla } from "./nueva-plantilla";
 
 const TONE: Record<string, string> = { APPROVED: "ok", PENDING: "warn", IN_APPEAL: "warn", REJECTED: "err", PAUSED: "err", DISABLED: "err" };
 const LABEL: Record<string, string> = { APPROVED: "Aprobada", PENDING: "En revisión", IN_APPEAL: "En apelación", REJECTED: "Rechazada", PAUSED: "Pausada", DISABLED: "Deshabilitada" };
@@ -93,8 +94,10 @@ export default async function TemplatesPage({ searchParams }: { searchParams: Pr
         </table>
       </div>
 
+      <NuevaPlantilla />
+
       <details className="card wide" style={{ marginTop: 16 }}>
-        <summary>Ver el texto de las plantillas que se envían a Meta</summary>
+        <summary>Ver el texto de las plantillas que el CRM usa por su cuenta</summary>
         {TEMPLATE_DEFS.map((def) => (
           <div key={def.name} style={{ marginTop: 12 }}>
             <code>{def.name}</code>

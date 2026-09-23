@@ -1511,3 +1511,31 @@ label.switch { flex-direction: row; align-items: center; gap: 12px; font-weight:
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; animation: none !important; }
 }
+
+/* ── Escribir una plantilla de WhatsApp ────────────────────────────────── */
+.nueva-plantilla { margin-top: 16px; }
+.nueva-plantilla > summary {
+  cursor: pointer; font-weight: 600; color: var(--brand);
+  display: flex; align-items: center; gap: 6px; list-style: none; width: fit-content;
+}
+.nueva-plantilla > summary::-webkit-details-marker { display: none; }
+.form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin-top: 14px; }
+.form-grid .ancho { grid-column: 1 / -1; }
+.form-grid label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; font-weight: 600; }
+.form-grid .hint { font-weight: 400; }
+/* Un ejemplo por variable: la etiqueta es la propia variable, así se ve a cuál corresponde. */
+.ejemplos { display: grid; gap: 8px; background: var(--panel-2); border: 1px solid var(--border); border-radius: var(--r-md); padding: 12px; }
+.ejemplo { flex-direction: row !important; align-items: center; gap: 10px; }
+.ejemplo code { flex: none; }
+.ejemplo input { flex: 1; }
+/* Cómo le llega el mensaje al cliente, con la forma de una burbuja de WhatsApp. */
+.vista-previa .burbuja {
+  background: var(--bot-bubble, var(--panel-2)); border: 1px solid var(--border);
+  border-radius: 12px 12px 12px 4px; padding: 10px 12px; margin-top: 6px;
+  white-space: pre-wrap; max-width: 460px;
+}
+.problemas { margin: 0; padding-left: 18px; color: var(--err); font-size: 13px; display: grid; gap: 4px; }
+
+@media (max-width: 720px) {
+  .form-grid { grid-template-columns: 1fr; }
+}

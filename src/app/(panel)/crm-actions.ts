@@ -12,6 +12,7 @@ import { setAgentEnabled } from "@/lib/settings";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { KNOWLEDGE_CATEGORIES, LEAD_ORIGINS, MANUAL_ARCHIVE_REASONS } from "@/lib/types";
 import { createTemplate, syncTemplates, TEMPLATE_DEFS } from "@/lib/whatsapp/templates";
+import { CATEGORIAS, revisarPlantilla, variablesDe } from "@/lib/whatsapp/plantilla-reglas";
 
 // Escrituras con la sesión del usuario: RLS es la barrera (asesor = su sucursal o todas si no tiene una, admin = todo).
 // Las de equipo usan la service role, solo después de comprobar que quien llama es admin.
@@ -572,6 +573,49 @@ export async function createReminderTemplate(formData?: FormData) {
     const r = await createTemplate(def);
     revalidatePath("/plantillas");
     back("/plantillas", "ok", `Plantilla «${def.name}» enviada a Meta (estado: ${r.status}). La revisión tarda de minutos a unas horas: luego pulsa «Sincronizar».`);
+  } catch (err) {
+    if (isRedirectError(err)) throw err;
+    back("/plantillas", "error", err instanceof Error ? err.message : "No se pudo crear la plantilla");
+  }
+}
+
+/**
+ * Crea una plantilla escrita por el negocio y la manda a Meta para que la revise.
+ *
+ * Las reglas se comprueban aquí otra vez, aunque el formulario ya avise: un rechazo de Meta llega en inglés,
+ * críptico y horas después, así que conviene no llegar a él.
+ */
+export async function crearPlantilla(formData: FormData) {
+  await requireAdmin();
+  const parsed = z
+    .object({
+      name: z.string().trim().toLowerCase(),
+      category: z.enum(CATEGORIAS),
+      language: z.string().trim().min(2),
+      body: z.string().trim(),
+      examples: z.string().default(""),
+    })
+    .safeParse(Object.fromEntries(formData));
+  if (!parsed.success) back("/plantillas", "error", "Faltan datos de la plantilla");
+
+  // Los ejemplos llegan uno por línea, en el orden de las variables.
+  const examples = parsed.data.examples.split(/\r?\n/).map((e) => e.trim());
+  const propuesta = { ...parsed.data, examples };
+
+  const problemas = revisarPlantilla(propuesta);
+  if (problemas.length) back("/plantillas", "error", problemas[0]);
+
+  try {
+    const r = await createTemplate({
+      name: propuesta.name,
+      category: propuesta.category,
+      language: propuesta.language,
+      body: propuesta.body,
+      // Solo los ejemplos de las variables que el texto usa de verdad.
+      examples: variablesDe(propuesta.body).map((n) => examples[n - 1]),
+    });
+    revalidatePath("/plantillas");
+    back("/plantillas", "ok", `Plantilla «${propuesta.name}» enviada a Meta (estado: ${r.status}). La revisión tarda de minutos a unas horas: luego pulsa «Sincronizar».`);
   } catch (err) {
     if (isRedirectError(err)) throw err;
     back("/plantillas", "error", err instanceof Error ? err.message : "No se pudo crear la plantilla");
