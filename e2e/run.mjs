@@ -674,8 +674,10 @@ const reqConv = await waitFor(async () => { const c = (await q(db.from("conversa
 check("tablero: pasar a «Requiere humano» avisa a una persona y pausa el bot", reqConv?.requires_human === true && reqConv.bot_active === false, JSON.stringify(reqConv));
 check("...la tarjeta sale en esa columna y no en su etapa, que se conserva", await pa.locator(".column[data-status='humano'] .lead-card", { hasText: "Carla" }).isVisible() && (await stageOf()) === "sin_respuesta");
 await carlaCard().locator("select").selectOption("seguimiento");
-const attended = await waitFor(async () => { const c = (await q(db.from("conversations").select("requires_human").eq("lead_id", lead.id)))[0]; return !c.requires_human && (await stageOf()) === "seguimiento"; }, 10000);
-check("tablero: sacarla de «Requiere humano» la da por atendida y la deja en la etapa elegida", !!attended);
+// Al sacarla hay que devolver también el bot: si no, el chat queda sin bot (se apagó al pedir persona) y
+// sin el aviso de que alguien debe atenderlo, o sea sin nadie que conteste y sin que el tablero lo diga.
+const attended = await waitFor(async () => { const c = (await q(db.from("conversations").select("requires_human, bot_active").eq("lead_id", lead.id)))[0]; return !c.requires_human && c.bot_active === true && (await stageOf()) === "seguimiento"; }, 10000);
+check("tablero: sacarla de «Requiere humano» la da por atendida, devuelve el bot y la deja en la etapa elegida", !!attended);
 await pa.screenshot({ path: `${SHOTS}21-pipeline.png` });
 // Se deja a Carla como estaba para las pruebas siguientes
 await q(db.from("jobs").delete().eq("status", "pending").contains("payload", { conversationId: conv.id }));

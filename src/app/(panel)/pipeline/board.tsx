@@ -124,9 +124,12 @@ export function Board({
       return;
     }
     if (atender) {
+      // Se devuelve al bot, además de quitar la marca. Sin esto el chat quedaba en el peor estado posible:
+      // el bot apagado (se apagó al pedir persona) y ya sin el aviso de que alguien debe atenderlo, así que
+      // no contestaba nadie y el tablero no lo señalaba.
       const { error: convErr } = await db
         .from("conversations")
-        .update({ requires_human: false, handoff_reason: null })
+        .update({ requires_human: false, bot_active: true, handoff_reason: null })
         .eq("id", lead.conversationId!);
       if (convErr) {
         setLeads(prev);
