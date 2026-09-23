@@ -11,7 +11,7 @@ import { requireAdmin, requireUser, seesAllBranches } from "@/lib/session";
 import { setAgentEnabled } from "@/lib/settings";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { KNOWLEDGE_CATEGORIES, LEAD_ORIGINS, MANUAL_ARCHIVE_REASONS } from "@/lib/types";
-import { createTemplate, syncTemplates, TEMPLATE_DEFS } from "@/lib/whatsapp/templates";
+import { createTemplate, syncTemplates, TEMPLATE_DEFS, updateTemplate } from "@/lib/whatsapp/templates";
 import { CATEGORIAS, revisarPlantilla, variablesDe } from "@/lib/whatsapp/plantilla-reglas";
 
 // Escrituras con la sesión del usuario: RLS es la barrera (asesor = su sucursal o todas si no tiene una, admin = todo).
@@ -580,6 +580,32 @@ export async function createReminderTemplate(formData?: FormData) {
 }
 
 /**
+ * Lleva a Meta los cambios de una de las plantillas que el CRM trae programadas: hoy, sus botones.
+ *
+ * Meta la vuelve a revisar y, mientras tanto, se sigue enviando la versión anterior, así que no se pierde
+ * ningún recordatorio por hacer esto.
+ */
+export async function actualizarPlantilla(formData: FormData) {
+  await requireAdmin();
+  const nombre = String(formData.get("name") ?? "");
+  const def = TEMPLATE_DEFS.find((t) => t.name === nombre);
+  if (!def) back("/plantillas", "error", "Esa plantilla no la maneja el CRM");
+
+  const { data: fila } = await createAdminClient().from("message_templates").select("meta_id").eq("name", nombre).maybeSingle();
+  const metaId = fila?.meta_id as string | null;
+  if (!metaId) back("/plantillas", "error", "Falta el identificador de Meta: pulsa «Sincronizar» primero");
+
+  try {
+    await updateTemplate(metaId, def);
+    revalidatePath("/plantillas");
+    back("/plantillas", "ok", `«${nombre}» se envió a Meta con sus botones. Vuelve a revisión: mientras tanto se sigue usando la versión anterior.`);
+  } catch (err) {
+    if (isRedirectError(err)) throw err;
+    back("/plantillas", "error", err instanceof Error ? err.message : "No se pudo actualizar la plantilla");
+  }
+}
+
+/**
  * Crea una plantilla escrita por el negocio y la manda a Meta para que la revise.
  *
  * Las reglas se comprueban aquí otra vez, aunque el formulario ya avise: un rechazo de Meta llega en inglés,
@@ -594,13 +620,15 @@ export async function crearPlantilla(formData: FormData) {
       language: z.string().trim().min(2),
       body: z.string().trim(),
       examples: z.string().default(""),
+      buttons: z.string().default(""),
     })
     .safeParse(Object.fromEntries(formData));
   if (!parsed.success) back("/plantillas", "error", "Faltan datos de la plantilla");
 
-  // Los ejemplos llegan uno por línea, en el orden de las variables.
+  // Los ejemplos llegan uno por línea, en el orden de las variables; los botones, igual.
   const examples = parsed.data.examples.split(/\r?\n/).map((e) => e.trim());
-  const propuesta = { ...parsed.data, examples };
+  const buttons = parsed.data.buttons.split(/\r?\n/).map((b) => b.trim()).filter(Boolean);
+  const propuesta = { ...parsed.data, examples, buttons };
 
   const problemas = revisarPlantilla(propuesta);
   if (problemas.length) back("/plantillas", "error", problemas[0]);
@@ -613,6 +641,7 @@ export async function crearPlantilla(formData: FormData) {
       body: propuesta.body,
       // Solo los ejemplos de las variables que el texto usa de verdad.
       examples: variablesDe(propuesta.body).map((n) => examples[n - 1]),
+      ...(buttons.length && { buttons }),
     });
     revalidatePath("/plantillas");
     back("/plantillas", "ok", `Plantilla «${propuesta.name}» enviada a Meta (estado: ${r.status}). La revisión tarda de minutos a unas horas: luego pulsa «Sincronizar».`);

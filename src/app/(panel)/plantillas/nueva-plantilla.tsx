@@ -2,7 +2,7 @@
 import { useMemo, useState } from "react";
 import { crearPlantilla } from "@/app/(panel)/crm-actions";
 import { Icon } from "@/components/icons";
-import { CATEGORIAS, CATEGORIA_HINT, CATEGORIA_LABEL, revisarPlantilla, variablesDe, vistaPrevia, type Categoria } from "@/lib/whatsapp/plantilla-reglas";
+import { CATEGORIAS, CATEGORIA_HINT, CATEGORIA_LABEL, MAX_BOTONES, MAX_LARGO_BOTON, revisarPlantilla, variablesDe, vistaPrevia, type Categoria } from "@/lib/whatsapp/plantilla-reglas";
 
 /**
  * Escribir una plantilla y mandarla a Meta.
@@ -16,12 +16,13 @@ export function NuevaPlantilla() {
   const [category, setCategory] = useState<Categoria>("UTILITY");
   const [body, setBody] = useState("");
   const [examples, setExamples] = useState<string[]>([]);
+  const [buttons, setButtons] = useState<string[]>([]);
   const [enviando, setEnviando] = useState(false);
 
   const vars = useMemo(() => variablesDe(body), [body]);
   const problemas = useMemo(
-    () => revisarPlantilla({ name, category, language: "es", body, examples }),
-    [name, category, body, examples],
+    () => revisarPlantilla({ name, category, language: "es", body, examples, buttons }),
+    [name, category, body, examples, buttons],
   );
   // Mientras el formulario está vacío no se regaña a nadie.
   const tocado = name.trim() !== "" || body.trim() !== "";
@@ -104,10 +105,43 @@ export function NuevaPlantilla() {
           </div>
         )}
 
+        <div className="ancho ejemplos">
+          <strong>Botones (opcional)</strong>
+          <p className="hint">
+            Hasta {MAX_BOTONES}, de {MAX_LARGO_BOTON} caracteres. Al pulsarlos, el cliente nos manda ese texto como si lo hubiera
+            escrito: por eso conviene que digan exactamente lo que hacen («Confirmar», «Cancelar»).
+          </p>
+          {Array.from({ length: MAX_BOTONES }).map((_, i) => (
+            <label key={i} className="ejemplo">
+              <code>{i + 1}</code>
+              <input
+                value={buttons[i] ?? ""}
+                maxLength={MAX_LARGO_BOTON}
+                placeholder={i === 0 ? "Confirmar" : "…"}
+                onChange={(e) =>
+                  setButtons((cur) => {
+                    const next = [...cur];
+                    next[i] = e.target.value;
+                    return next;
+                  })
+                }
+              />
+            </label>
+          ))}
+          <input type="hidden" name="buttons" value={buttons.map((b) => (b ?? "").trim()).join("\n")} />
+        </div>
+
         {body.trim() && (
           <div className="ancho vista-previa">
             <strong>Así le llega al cliente</strong>
             <p className="burbuja">{vistaPrevia(body, examples)}</p>
+            {buttons.some((b) => b?.trim()) && (
+              <div className="botones-previa">
+                {buttons.filter((b) => b?.trim()).map((b) => (
+                  <span key={b} className="boton-previa">{b}</span>
+                ))}
+              </div>
+            )}
           </div>
         )}
 

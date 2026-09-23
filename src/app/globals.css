@@ -1539,3 +1539,9 @@ label.switch { flex-direction: row; align-items: center; gap: 12px; font-weight:
 @media (max-width: 720px) {
   .form-grid { grid-template-columns: 1fr; }
 }
+/* Los botones tal como los verá el cliente bajo el mensaje. */
+.botones-previa { display: grid; gap: 2px; max-width: 460px; margin-top: 2px; }
+.boton-previa {
+  text-align: center; padding: 8px; font-size: 13px; font-weight: 600; color: var(--brand);
+  background: var(--panel); border: 1px solid var(--border); border-radius: 6px;
+}

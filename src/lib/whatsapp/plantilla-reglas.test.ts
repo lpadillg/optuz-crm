@@ -65,3 +65,24 @@ describe("vistaPrevia", () => {
     expect(vistaPrevia("Hola {{1}}, el {{2}}.", ["María"])).toBe("Hola María, el {{2}}.");
   });
 });
+
+describe("botones", () => {
+  it("hasta tres, y con eso basta", () => {
+    expect(problemas({ buttons: ["Confirmar", "Reagendar", "Cancelar"] })).toEqual([]);
+    expect(problemas({ buttons: ["Uno", "Dos", "Tres", "Cuatro"] })[0]).toMatch(/3 botones/);
+  });
+
+  it("ninguno pasa de 25 caracteres, y dice cuál se pasa", () => {
+    const e = problemas({ buttons: ["Confirmar mi cita del sábado por la tarde"] });
+    expect(e[0]).toMatch(/25 caracteres/);
+    expect(e[0]).toMatch(/Confirmar mi cita/);
+  });
+
+  it("no puede haber dos iguales", () => {
+    expect(problemas({ buttons: ["Confirmar", "confirmar"] })[0]).toMatch(/mismo texto/);
+  });
+
+  it("sin botones también vale: son opcionales", () => {
+    expect(problemas({ buttons: [] })).toEqual([]);
+  });
+});

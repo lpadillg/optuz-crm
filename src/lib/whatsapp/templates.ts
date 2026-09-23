@@ -16,15 +16,28 @@ export interface TemplateDef {
   body: string;
   /** Un ejemplo por variable (Meta lo exige para aprobarla). */
   examples: string[];
+  /**
+   * Botones de respuesta rápida (hasta 3, de 25 caracteres). Al pulsarlos, WhatsApp manda su texto como un
+   * mensaje normal del cliente, así que se leen igual que si lo hubiera escrito.
+   */
+  buttons?: string[];
 }
+
+/** Los botones tal como los espera Meta al crear o editar una plantilla. */
+const componentes = (def: TemplateDef) => [
+  { type: "BODY", text: def.body, example: { body_text: [def.examples] } },
+  ...(def.buttons?.length ? [{ type: "BUTTONS", buttons: def.buttons.map((text) => ({ type: "QUICK_REPLY", text })) }] : []),
+];
 
 /** Recordatorio de cita: {{1}} nombre, {{2}} día, {{3}} hora, {{4}} sucursal, {{5}} dirección. */
 export const REMINDER_TEMPLATE: TemplateDef = {
   name: "cita_recordatorio",
   category: "UTILITY",
   language: "es",
-  body: "Hola {{1}} 👋 Te recordamos tu evaluación visual gratuita el {{2}} a las {{3}} en la sucursal {{4}} ({{5}}). Responde 1 para confirmar, 2 para reprogramar o 3 para cancelar.",
+  body: "Hola {{1}} 👋 Te recordamos tu evaluación visual gratuita el {{2}} a las {{3}} en la sucursal {{4}} ({{5}}).",
   examples: ["María", "sábado 19 de septiembre", "10:00 a. m.", "Huánuco", "Jr. 28 de Julio 1131"],
+  // Con botones no hay que explicar nada ni pedirle que escriba un número: toca y ya.
+  buttons: ["Confirmar", "Reagendar", "Cancelar"],
 };
 
 /** Cita movida: {{1}} nombre, {{2}} día nuevo, {{3}} hora nueva, {{4}} sucursal. */
@@ -101,7 +114,7 @@ export async function createTemplate(def: TemplateDef): Promise<{ id?: string; s
       name: def.name,
       language: def.language,
       category: def.category,
-      components: [{ type: "BODY", text: def.body, example: { body_text: [def.examples] } }],
+      components: componentes(def),
     }),
     signal: AbortSignal.timeout(15_000),
   });
@@ -113,6 +126,28 @@ export async function createTemplate(def: TemplateDef): Promise<{ id?: string; s
     { onConflict: "name" },
   );
   return { id: data.id, status };
+}
+
+/**
+ * Cambia una plantilla que ya existe en Meta (por ejemplo, para añadirle botones).
+ *
+ * Meta la vuelve a poner en revisión y, mientras tanto, sigue enviándose la versión anterior. No se puede
+ * editar una que esté en revisión, ni cambiarle el nombre ni el idioma: para eso hay que crear otra.
+ */
+export async function updateTemplate(metaId: string, def: TemplateDef): Promise<{ status: string }> {
+  const res = await fetch(`${env.graphBaseUrl}/${env.graphVersion}/${metaId}`, {
+    method: "POST",
+    headers: auth(),
+    body: JSON.stringify({ category: def.category, components: componentes(def) }),
+    signal: AbortSignal.timeout(15_000),
+  });
+  const data = (await res.json().catch(() => ({}))) as { success?: boolean; error?: { message?: string; error_user_msg?: string } };
+  if (!res.ok) throw new Error(`Meta rechazó el cambio: ${data.error?.error_user_msg ?? data.error?.message ?? res.status}`);
+  await createAdminClient()
+    .from("message_templates")
+    .update({ body: def.body, status: "PENDING", synced_at: new Date().toISOString() })
+    .eq("meta_id", metaId);
+  return { status: "PENDING" };
 }
 
 /** La plantilla aprobada con ese nombre (según el espejo local), o null. */

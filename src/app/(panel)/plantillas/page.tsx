@@ -1,4 +1,4 @@
-import { createReminderTemplate, syncTemplatesAction } from "@/app/(panel)/crm-actions";
+import { actualizarPlantilla, createReminderTemplate, syncTemplatesAction } from "@/app/(panel)/crm-actions";
 import { Icon } from "@/components/icons";
 import { env } from "@/lib/env";
 import { requireAdmin } from "@/lib/session";
@@ -98,13 +98,32 @@ export default async function TemplatesPage({ searchParams }: { searchParams: Pr
 
       <details className="card wide" style={{ marginTop: 16 }}>
         <summary>Ver el texto de las plantillas que el CRM usa por su cuenta</summary>
-        {TEMPLATE_DEFS.map((def) => (
-          <div key={def.name} style={{ marginTop: 12 }}>
-            <code>{def.name}</code>
-            <p className="muted" style={{ whiteSpace: "pre-wrap", marginTop: 4 }}>{def.body}</p>
-            <p className="hint">Ejemplo: {def.examples.join(" · ")}. Categoría: {def.category === "UTILITY" ? "utilidad (aviso sobre algo que el cliente ya pidió)" : "marketing"}.</p>
-          </div>
-        ))}
+        {TEMPLATE_DEFS.map((def) => {
+          const fila = rows.find((t) => t.name === def.name);
+          // Lo que hay en Meta puede haberse quedado atrás respecto a lo que trae el CRM (p. ej. los botones).
+          const desfasada = fila && fila.body !== def.body;
+          return (
+            <div key={def.name} style={{ marginTop: 12 }}>
+              <code>{def.name}</code>
+              <p className="muted" style={{ whiteSpace: "pre-wrap", marginTop: 4 }}>{def.body}</p>
+              {def.buttons?.length ? (
+                <p className="hint">
+                  Botones: {def.buttons.map((b) => `«${b}»`).join(" · ")}
+                </p>
+              ) : null}
+              <p className="hint">Ejemplo: {def.examples.join(" · ")}. Categoría: {def.category === "UTILITY" ? "utilidad (aviso sobre algo que el cliente ya pidió)" : "marketing"}.</p>
+              {desfasada && (
+                <form action={actualizarPlantilla}>
+                  <input type="hidden" name="name" value={def.name} />
+                  <button type="submit" className="ghost btn-sm" disabled={!configured}>
+                    Aplicar estos cambios en Meta
+                  </button>
+                  <span className="hint"> La plantilla vuelve a revisión; mientras tanto se sigue enviando la versión actual.</span>
+                </form>
+              )}
+            </div>
+          );
+        })}
       </details>
     </div>
   );

@@ -2,7 +2,7 @@ import "server-only";
 import { cancelAppointment, confirmAppointment } from "@/lib/appointment-ops";
 import { env } from "@/lib/env";
 import type { IngestResult } from "@/lib/inbound";
-import { sendBotTemplate, sendBotText } from "@/lib/outbound";
+import { sendBotOptions, sendBotTemplate, sendBotText } from "@/lib/outbound";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { formatLimaTime } from "@/lib/time";
 import { getApprovedTemplate, renderTemplate } from "@/lib/whatsapp/templates";
@@ -10,7 +10,9 @@ import { getApprovedTemplate, renderTemplate } from "@/lib/whatsapp/templates";
 const norm = (s: string) =>
   s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9 ]+/g, " ").replace(/\s+/g, " ").trim();
 
-/** Respuestas a un recordatorio que se entienden sin modelo (rápido, gratis y sin margen de error). «2» (reprogramar) lo lleva el agente. */
+/** Respuestas a un recordatorio que se entienden sin modelo (rápido, gratis y sin margen de error). Cubren
+ * tanto los botones («Confirmar», «Cancelar») como lo que la gente escribe a mano. «Reagendar» no está aquí a
+ * propósito: buscarle otro horario es una conversación, y esa la lleva el agente. */
 export const isConfirmReply = (t: string) => /^(1|confirmo|confirmar|confirmada|si confirmo|si|ok|okay|de acuerdo|listo|alli estare|ahi estare|estare alli|asistire|voy)$/.test(norm(t));
 export const isCancelReply = (t: string) => /^(3|cancelar|cancelo|cancela mi cita|no podre ir|no voy a poder ir|no asistire|no ire)$/.test(norm(t));
 
@@ -19,14 +21,20 @@ export const CANCELLED_REPLY = "Listo, cancelé tu cita. Si quieres reprogramarl
 
 const dateText = (d: Date) => new Intl.DateTimeFormat("es-PE", { timeZone: "America/Lima", weekday: "long", day: "numeric", month: "long" }).format(d);
 
-/** Texto del recordatorio dentro de la ventana de 24 h. */
+/** Texto del recordatorio dentro de la ventana de 24 h. Las opciones van en botones, no escritas. */
 export function reminderText(kind: "24h" | "2h", nombre: string | null, start: Date, branch: { nombre: string; direccion: string }): string {
   const first = nombre ? ` ${nombre.split(" ")[0]}` : "";
   if (kind === "2h") {
-    return `Hola${first} 👋 Tu evaluación visual gratuita es hoy a las ${formatLimaTime(start)} en ${env.businessName} ${branch.nombre} (${branch.direccion}). ¡Te esperamos! Si no puedes venir, responde *3* para cancelar.`;
+    return `Hola${first} 👋 Tu evaluación visual gratuita es hoy a las ${formatLimaTime(start)} en ${env.businessName} ${branch.nombre} (${branch.direccion}). ¡Te esperamos!`;
   }
-  return `Hola${first} 👋 Te recordamos tu evaluación visual gratuita el ${dateText(start)} a las ${formatLimaTime(start)} en ${env.businessName} ${branch.nombre} (${branch.direccion}).\n\nResponde *1* para confirmar, *2* para reprogramar o *3* para cancelar.`;
+  return `Hola${first} 👋 Te recordamos tu evaluación visual gratuita el ${dateText(start)} a las ${formatLimaTime(start)} en ${env.businessName} ${branch.nombre} (${branch.direccion}).`;
 }
+
+/**
+ * Lo que puede hacer el cliente con su cita, en botones. Pedirle que escriba «1» pierde respuestas: hay que
+ * leer la instrucción, volver al teclado y acertar con el número.
+ */
+export const REMINDER_BUTTONS = ["Confirmar", "Reagendar", "Cancelar"];
 
 async function flagHuman(conversationId: string, reason: string) {
   await createAdminClient().from("conversations").update({ requires_human: true, handoff_reason: reason }).eq("id", conversationId).eq("requires_human", false);
@@ -35,8 +43,9 @@ async function flagHuman(conversationId: string, reason: string) {
 export type ReminderOutcome = "sent" | "skipped" | "needs_human";
 
 /**
- * Envía el recordatorio de una cita. Dentro de la ventana de 24 h va como texto normal; fuera de ella solo se puede con una
- * plantilla APROBADA (Plantillas → recordatorio). Si no hay, queda «Requiere humano» para que alguien avise al cliente.
+ * Envía el recordatorio de una cita, con sus tres botones. Dentro de la ventana de 24 h va como mensaje
+ * normal; fuera de ella solo se puede con una plantilla APROBADA (Plantillas → recordatorio). Si no hay,
+ * queda «Requiere humano» para que alguien avise al cliente.
  */
 export async function sendReminder(appointmentId: string, kind: "24h" | "2h"): Promise<ReminderOutcome> {
   const db = createAdminClient();
@@ -68,7 +77,7 @@ export async function sendReminder(appointmentId: string, kind: "24h" | "2h"): P
   const meta = { kind: "reminder", appointment_id: appointmentId, reminder: kind };
 
   if (inWindow) {
-    await sendBotText(conversationId, reminderText(kind, lead.nombre, start, branch), meta);
+    await sendBotOptions(conversationId, reminderText(kind, lead.nombre, start, branch), REMINDER_BUTTONS, meta);
   } else {
     const tpl = await getApprovedTemplate(env.reminderTemplate);
     if (!tpl) {
@@ -87,8 +96,9 @@ export async function sendReminder(appointmentId: string, kind: "24h" | "2h"): P
 }
 
 /**
- * Si el último mensaje nuestro fue un recordatorio y el cliente responde «1» (confirmar) o «3» (cancelar), se atiende aquí,
- * sin llamar al modelo. «2» (reprogramar) y cualquier otra cosa pasan al agente. Devuelve true si ya quedó atendido.
+ * Si el último mensaje nuestro fue un recordatorio y el cliente confirma o cancela —pulsando el botón o
+ * escribiéndolo—, se atiende aquí, sin llamar al modelo. «Reagendar» y cualquier otra cosa pasan al agente.
+ * Devuelve true si ya quedó atendido.
  */
 export async function handleReminderReply(result: IngestResult, text: string): Promise<boolean> {
   const confirm = isConfirmReply(text);

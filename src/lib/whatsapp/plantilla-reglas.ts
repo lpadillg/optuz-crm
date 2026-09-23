@@ -34,7 +34,12 @@ export interface PlantillaPropuesta {
   language: string;
   body: string;
   examples: string[];
+  /** Botones de respuesta rápida: hasta 3, de 25 caracteres. */
+  buttons?: string[];
 }
+
+export const MAX_BOTONES = 3;
+export const MAX_LARGO_BOTON = 25;
 
 /**
  * Devuelve los problemas que Meta rechazaría, en el orden en que conviene arreglarlos. Lista vacía = lista
@@ -68,6 +73,12 @@ export function revisarPlantilla(p: PlantillaPropuesta): string[] {
       errores.push(`Falta un ejemplo para ${faltan.map((n) => `{{${n}}}`).join(", ")}. Meta los exige para poder revisarla.`);
     }
   }
+
+  const botones = (p.buttons ?? []).map((b) => b.trim()).filter(Boolean);
+  if (botones.length > MAX_BOTONES) errores.push(`WhatsApp admite como mucho ${MAX_BOTONES} botones.`);
+  const largos = botones.filter((b) => b.length > MAX_LARGO_BOTON);
+  if (largos.length) errores.push(`Un botón no puede pasar de ${MAX_LARGO_BOTON} caracteres: «${largos[0]}» tiene ${largos[0].length}.`);
+  if (new Set(botones.map((b) => b.toLowerCase())).size !== botones.length) errores.push("Hay dos botones con el mismo texto.");
 
   if (!p.language.trim()) errores.push("Elige el idioma.");
   return errores;
