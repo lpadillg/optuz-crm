@@ -2,6 +2,7 @@ import { DateRangeFields } from "@/components/date-range-fields";
 import { FormDialog } from "@/components/form-dialog";
 import { Icon } from "@/components/icons";
 import { PageHelp } from "@/components/page-help";
+import { SubmitButton } from "@/components/submit-button";
 import { requireUser } from "@/lib/session";
 import { createPromotion, togglePromotion, updatePromotion } from "../actions";
 
@@ -87,7 +88,7 @@ export default async function PromotionsPage({ searchParams }: { searchParams: P
               </label>
               <DateRangeFields />
               <div className="form-actions">
-                <button type="submit">Crear promoción</button>
+                <SubmitButton pendingLabel="Creando…">Crear promoción</SubmitButton>
               </div>
             </form>
           </FormDialog>
@@ -166,16 +167,16 @@ export default async function PromotionsPage({ searchParams }: { searchParams: P
                             </label>
                             <DateRangeFields defaultFrom={p.valid_from} defaultTo={p.valid_to} />
                             <div className="form-actions">
-                              <button type="submit">Guardar cambios</button>
+                              <SubmitButton>Guardar cambios</SubmitButton>
                             </div>
                           </form>
                         </FormDialog>
                         <form action={togglePromotion}>
                           <input type="hidden" name="id" value={p.id} />
                           <input type="hidden" name="active" value={String(!p.active)} />
-                          <button type="submit" className="ghost btn-sm">
+                          <SubmitButton className="ghost btn-sm" pendingLabel="…">
                             {p.active ? "Desactivar" : "Activar"}
-                          </button>
+                          </SubmitButton>
                         </form>
                       </div>
                     </td>
