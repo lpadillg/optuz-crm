@@ -394,3 +394,42 @@ describe("el nombre de la cita lo confirma el cliente", () => {
     expect(r.content).toMatch(/pregúntale a nombre de quién|confirme el nombre|preguntado/i);
   });
 });
+
+/**
+ * Cuando el cliente vuelve a pedir cita a media conversación está empezando de nuevo: puede querer otro día,
+ * otra tienda o que sea para otra persona. Todo lo confirmado antes deja de valer, y eso se decide leyendo el
+ * historial, no fiándose de que el modelo se acuerde.
+ */
+describe("volver a pedir cita reinicia lo confirmado", () => {
+  const ctx = () => ({ leadId: "l1", conversationId: "c1", branchId: "b1", handedOff: false });
+
+  it("el nombre que dio ANTES de volver a pedir cita ya no cuenta", async () => {
+    // El historial llega del más reciente al más antiguo.
+    h.state.historial = [
+      { direction: "in", content: "Quiero una cita" },
+      { direction: "out", content: "¿A nombre de quién?" },
+      { direction: "in", content: "Es para Ana Pérez" },
+    ];
+    const r = await executeTool("book_appointment", { full_name: "Ana Pérez", starts_at: "2099-01-05T15:00" }, ctx());
+    expect(r.content).toMatch(/pregúntale a nombre de quién|nombre y apellido|preguntado/i);
+  });
+
+  it("...pero sí cuenta si lo dijo DESPUÉS", async () => {
+    h.state.historial = [
+      { direction: "in", content: "Es para Ana Pérez" },
+      { direction: "out", content: "¿A nombre de quién?" },
+      { direction: "in", content: "Quiero una cita" },
+    ];
+    const r = await executeTool("book_appointment", { full_name: "Ana Pérez", starts_at: "2099-01-05T15:00" }, ctx());
+    expect(r.content).not.toMatch(/pregúntale a nombre de quién/i);
+  });
+
+  it("una frase que solo menciona la cita de pasada no reinicia nada", async () => {
+    h.state.historial = [
+      { direction: "in", content: "¿la cita es gratis?" },
+      { direction: "in", content: "Es para Ana Pérez" },
+    ];
+    const r = await executeTool("book_appointment", { full_name: "Ana Pérez", starts_at: "2099-01-05T15:00" }, ctx());
+    expect(r.content).not.toMatch(/pregúntale a nombre de quién/i);
+  });
+});

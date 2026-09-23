@@ -96,3 +96,8 @@ export function etiquetaBoton(instant: Date): string {
   const dia = new Intl.DateTimeFormat("es-PE", { timeZone: TZ, weekday: "short", day: "numeric" }).format(instant).replace(".", "");
   return `${dia}, ${formatLimaTime(instant)}`;
 }
+
+/** "sábado 26 de septiembre": el día, sin hora, para encabezar una lista de horarios. */
+export function diaLargo(instant: Date): string {
+  return new Intl.DateTimeFormat("es-PE", { timeZone: TZ, weekday: "long", day: "numeric", month: "long" }).format(instant);
+}

@@ -6,7 +6,7 @@ import { attentionInfo } from "@/lib/attention";
 import { grantPromotions, revokeAll } from "@/lib/consent";
 import { sendBotOptions } from "@/lib/outbound";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { addDays, etiquetaBoton, formatLima, formatLimaTime, limaDateString, parseLimaLocal } from "@/lib/time";
+import { addDays, diaLargo, etiquetaBoton, formatLima, formatLimaTime, limaDateString, parseLimaLocal } from "@/lib/time";
 import { pareceNombreReal } from "@/lib/nombre";
 import { humanPauseMs } from "@/lib/typing";
 
@@ -29,21 +29,42 @@ async function ofrecerBotones(ctx: ToolContext, texto: string, opciones: string[
 }
 
 /**
- * ¿El cliente confirmó su sucursal EN ESTA conversación? La que tenemos guardada puede ser de hace meses: la
+ * Cuando el cliente vuelve a pedir una cita a media conversación («quiero una cita», «necesito agendar»), está
+ * empezando de nuevo: puede querer otro día, otra tienda u otra persona. Lo que confirmó antes deja de valer.
+ *
+ * Sin esto, el agente arrastraba el intento anterior y seguía pidiendo el dato que le faltaba, como una
+ * máquina atascada, en vez de atender lo que el cliente acababa de escribir.
+ */
+const REINICIA_LA_CITA =
+  /\b(quiero|necesito|deseo|quisiera|me gustaria|puedo (sacar|pedir|agendar))\b[^.?!]{0,40}\b(cita|agendar|evaluacion|examen)\b|^\s*(agendar|otra cita|nueva cita)\b/;
+
+/**
+ * Los mensajes del intento de cita EN CURSO, del más reciente al más antiguo: se cortan en cuanto aparece uno
+ * del cliente que vuelve a pedir cita desde cero.
+ */
+async function historialDelIntento(ctx: ToolContext, limite: number): Promise<{ direction: string; content: string | null; meta?: unknown }[]> {
+  const { data } = await createAdminClient()
+    .from("messages")
+    .select("direction, content, meta")
+    .eq("conversation_id", ctx.conversationId)
+    .order("created_at", { ascending: false })
+    .limit(limite);
+  const msgs = (data ?? []) as { direction: string; content: string | null; meta?: unknown }[];
+  const corte = msgs.findIndex((m) => m.direction === "in" && REINICIA_LA_CITA.test(normalizar(m.content ?? "")));
+  return corte === -1 ? msgs : msgs.slice(0, corte + 1);
+}
+
+const normalizar = (t: string) => t.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
+
+/**
+ * ¿El cliente confirmó su sucursal EN ESTE intento de cita? La que tenemos guardada puede ser de hace meses: la
  * gente se muda, viaja o pregunta por otra tienda, y mandarlo a la equivocada es un viaje perdido.
  * Cuenta como confirmada si nombró la tienda, o si respondió «sí» a la pregunta de confirmación.
  */
 async function sucursalConfirmada(ctx: ToolContext, nombre: string): Promise<boolean> {
-  const db = createAdminClient();
-  const { data } = await db
-    .from("messages")
-    .select("direction, content")
-    .eq("conversation_id", ctx.conversationId)
-    .order("created_at", { ascending: false })
-    .limit(12);
-  const normal = (t: string) => t.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+  const normal = normalizar;
   const tienda = normal(nombre);
-  const msgs = (data ?? []) as { direction: string; content: string | null }[];
+  const msgs = await historialDelIntento(ctx, 12);
   for (const [i, m] of msgs.entries()) {
     if (m.direction !== "in") continue;
     const texto = normal(m.content ?? "");
@@ -76,13 +97,20 @@ async function anotarVioHorarios(ctx: ToolContext): Promise<void> {
  * Se reconoce por la marca del mensaje, no por su texto: así no depende de cómo lo redacte el modelo.
  */
 async function pacientePreguntado(ctx: ToolContext): Promise<boolean> {
-  const { data } = await createAdminClient()
-    .from("messages")
-    .select("direction, meta")
-    .eq("conversation_id", ctx.conversationId)
-    .order("created_at", { ascending: false })
-    .limit(14);
-  return (data ?? []).some((m) => m.direction === "out" && (m.meta as { kind?: string } | null)?.kind === "paciente");
+  const msgs = await historialDelIntento(ctx, 14);
+  return msgs.some((m) => m.direction === "out" && (m.meta as { kind?: string } | null)?.kind === "paciente");
+}
+
+/**
+ * ¿El cliente escribió ese nombre —o parte de él— en esta conversación? Más flojo que `nombreConfirmado`
+ * a propósito: sirve para saber si ya dijo A QUIÉN se agenda, aunque diera un nombre suelto o un apodo y
+ * falte el apellido.
+ */
+async function clienteMenciono(ctx: ToolContext, fullName: string): Promise<boolean> {
+  const msgs = (await historialDelIntento(ctx, 8)).filter((m) => m.direction === "in");
+  const partes = normalizar(fullName).split(/\s+/).filter((p) => p.length >= 4);
+  if (!partes.length) return false;
+  return msgs.some((m) => partes.some((p) => normalizar(m.content ?? "").includes(p)));
 }
 
 /**
@@ -90,16 +118,9 @@ async function pacientePreguntado(ctx: ToolContext): Promise<boolean> {
  * del perfil de WhatsApp muchas veces es un apodo o cualquier otra cosa, y en la tienda llaman por ese nombre.
  */
 async function nombreConfirmado(ctx: ToolContext, fullName: string): Promise<boolean> {
-  const db = createAdminClient();
-  const { data } = await db
-    .from("messages")
-    .select("direction, content")
-    .eq("conversation_id", ctx.conversationId)
-    .order("created_at", { ascending: false })
-    .limit(14);
-  const normal = (t: string) => t.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
+  const normal = normalizar;
   const partes = normal(fullName).split(/\s+/).filter((p) => p.length >= 3);
-  const msgs = (data ?? []) as { direction: string; content: string | null }[];
+  const msgs = await historialDelIntento(ctx, 14);
   for (const [i, m] of msgs.entries()) {
     if (m.direction !== "in") continue;
     const texto = normal(m.content ?? "");
@@ -200,7 +221,7 @@ export const AGENT_TOOLS: ToolDef[] = [
     input_schema: {
       type: "object",
       properties: {
-        full_name: { type: "string", description: "Nombre completo del cliente" },
+        full_name: { type: "string", description: "Nombre Y APELLIDO de quien viene a la cita, tal como lo dio el cliente (puede no ser el propio contacto)" },
         starts_at: { type: "string", description: "Inicio en hora de Lima, formato YYYY-MM-DDTHH:mm" },
         promotion_id: { type: "string", description: "id de una promoción vigente de get_active_promotions; opcional" },
         contact_phone: {
@@ -433,8 +454,10 @@ export async function executeTool(name: string, input: unknown, ctx: ToolContext
         const ofrecidos = slots.slice(0, 3).map((s) => formatLimaTime(new Date(s)));
         if (ofrecidos.length > 0) await anotarVioHorarios(ctx);
         if (ofrecidos.length >= 2) {
-          const cuando = parsed.data.franja ? `en la ${parsed.data.franja}` : "ese día";
-          const enviado = await ofrecerBotones(ctx, `Estos son los horarios libres ${cuando}. ¿Cuál te acomoda?`, ofrecidos);
+          // El día va en el mensaje, no en cada botón: así el cliente ve de qué día habla y los botones
+          // quedan con la hora sola, que es lo único que está comparando.
+          const franja = parsed.data.franja ? ` por la ${parsed.data.franja}` : "";
+          const enviado = await ofrecerBotones(ctx, `El ${diaLargo(new Date(slots[0]))}${franja} tengo estos horarios, ¿cuál te acomoda?`, ofrecidos);
           if (enviado) {
             return json({
               enviados: ofrecidos,
@@ -482,7 +505,17 @@ export async function executeTool(name: string, input: unknown, ctx: ToolContext
 
         const slots = await findNextSlots(ctx.branchId, from, 3, 7, 30, parsed.data.franja ?? undefined);
         if (slots.length > 0) await anotarVioHorarios(ctx);
-        const enviado = slots.length > 0 && (await ofrecerBotones(ctx, "Estos son los horarios más próximos, ¿cuál te queda mejor?", slots.map((s) => etiquetaBoton(new Date(s)))));
+
+        // Si los horarios son todos del mismo día, el día se dice UNA vez en el mensaje y los botones llevan
+        // solo la hora. Repetir «sáb 26» en los tres botones llena el ancho y hace difícil comparar las horas,
+        // que es lo único que el cliente está mirando.
+        const fechas = slots.map((s) => new Date(s));
+        const mismoDia = fechas.length > 0 && fechas.every((d) => limaDateString(d) === limaDateString(fechas[0]));
+        const texto = mismoDia
+          ? `El ${diaLargo(fechas[0])} tengo estos horarios, ¿cuál te queda mejor?`
+          : "Estos son los horarios más próximos, ¿cuál te queda mejor?";
+        const etiquetas = fechas.map((d) => (mismoDia ? formatLimaTime(d) : etiquetaBoton(d)));
+        const enviado = slots.length > 0 && (await ofrecerBotones(ctx, texto, etiquetas));
         return json({
           opciones: slots.map((s) => ({ starts_at: toLimaLocal(new Date(s)), cuando: formatLima(new Date(s)) })),
           ...(enviado && { enviado_con_botones: true, siguiente_paso: "Ya le mandé los horarios como botones. NO los repitas por escrito; espera a que elija." }),
@@ -511,6 +544,14 @@ export async function executeTool(name: string, input: unknown, ctx: ToolContext
 
       // El nombre tiene que haberlo dicho el cliente en esta conversación.
       if (!(await nombreConfirmado(ctx, parsed.data.full_name))) {
+        // Si el cliente YA dijo a quién, aunque diera solo un nombre suelto o un apodo («Cachaco»), lo que
+        // falta es el apellido de ESA persona. Volver a preguntarle si la cita es para él sería ignorar lo
+        // que acaba de escribir, que es justo lo que hace que una conversación parezca una máquina.
+        if (await clienteMenciono(ctx, parsed.data.full_name)) {
+          return fail(
+            `Te dijo «${parsed.data.full_name}», pero necesitas el nombre completo de quien viene a la cita. Pídele el nombre y apellido de esa persona; no vuelvas a preguntarle si la cita es para él.`,
+          );
+        }
         if (delPerfil && pareceNombreReal(delPerfil) && !preguntado) {
           const enviado = await ofrecerBotones(
             ctx,
@@ -521,11 +562,11 @@ export async function executeTool(name: string, input: unknown, ctx: ToolContext
           if (enviado) {
             return json({
               preguntado: true,
-              siguiente_paso: "Le pregunté a nombre de quién va la cita. NO escribas más en este turno; cuando responda, agenda con el nombre que confirme (si dice que es para otra persona, pídele nombre y apellido de esa persona).",
+              siguiente_paso: "Le pregunté a nombre de quién va la cita. NO escribas más en este turno; cuando responda, agenda con el nombre que confirme. Si dice que es para otra persona, pídele el NOMBRE Y APELLIDO de esa persona en una sola pregunta.",
             });
           }
         }
-        return fail("Antes de agendar pregúntale a nombre de quién va la cita —puede ser para él o para otra persona— y agenda con el nombre y apellido que te responda.");
+        return fail("Antes de agendar pregúntale a nombre de quién va la cita —puede ser para él o para otra persona— pidiéndole NOMBRE Y APELLIDO en esa misma pregunta, para no tener que volver a preguntar.");
       }
 
       // Aunque el cliente haya dicho su nombre, si el que se va a usar es el suyo y nunca se le preguntó,

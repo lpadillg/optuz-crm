@@ -275,3 +275,35 @@ describe("costo de una reparación (en vivo)", () => {
     expect(/tienda|revisar|visita/i.test(t)).toBe(true);
   }, 60_000);
 });
+
+describe("a nombre de quién va la cita (en vivo)", () => {
+  it("pide nombre Y apellido en la misma pregunta, para no tener que volver a preguntar", async () => {
+    h.executeTool.mockClear();
+    // La hora que pide está libre; al intentar agendar, el código le exige el nombre del paciente. Lo que se
+    // mide aquí es CÓMO redacta esa pregunta.
+    h.executeTool.mockImplementation(async (name: string) => {
+      if (name === "get_availability") {
+        return { content: JSON.stringify({ hora: "08:00", disponible: true, siguiente_paso: "SÍ está libre: díselo y agenda esa hora con book_appointment." }) };
+      }
+      if (name === "book_appointment") {
+        return {
+          content: "Antes de agendar pregúntale a nombre de quién va la cita —puede ser para él o para otra persona— pidiéndole NOMBRE Y APELLIDO en esa misma pregunta, para no tener que volver a preguntar.",
+          isError: true,
+        };
+      }
+      return { content: "{}" };
+    });
+
+    const t = await responder(
+      "Ya eligió día, hora y sucursal",
+      BRANCHES[1],
+      "Quiero agendar mi evaluación en Huánuco",
+      "El sábado a las 8:00 am",
+    );
+    // Tiene que preguntar a nombre de quién...
+    expect(/nombre/i.test(t)).toBe(true);
+    // ...pidiendo el apellido de una vez. Preguntar «¿a nombre de quién?» a secas se contesta con un nombre
+    // suelto o un apodo, y entonces hay que volver a preguntar: dos mensajes para un solo dato.
+    expect(/apellido/i.test(t)).toBe(true);
+  }, 60_000);
+});
