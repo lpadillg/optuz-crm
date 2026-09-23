@@ -397,6 +397,15 @@ describe("elegir sucursal siempre con opciones tocables", () => {
 });
 
 describe("preguntar la sucursal", () => {
+  it("si el modelo solo saluda, la lista llega igualmente con la pregunta", async () => {
+    h.create.mockResolvedValueOnce(textReply("¡Buenas tardes, Luis!\n\nHuánuco — Jr. 28 de Julio 1131\nTingo María — Av. Tito Jaime 343"));
+    await runAgent(ctx);
+
+    const [, texto] = h.sendOptions.mock.calls[0];
+    expect(texto).toContain("¡Buenas tardes, Luis!");
+    expect(texto).toContain("¿Cuál sucursal te queda más cerca?");
+  }, 20_000);
+
   it("si la pregunta no nombra ninguna tienda, se manda la lista para tocar", async () => {
     // Pasa aunque el lead ya tenga una sucursal guardada: quien lee «¿en qué sucursal?» en el teléfono no
     // tiene nada que tocar, y acaba tecleando el nombre a mano.

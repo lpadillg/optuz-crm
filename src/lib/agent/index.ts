@@ -233,9 +233,11 @@ async function respond(ctx: AgentContext): Promise<RunResult> {
     try {
       // Como encabezado, la frase del modelo que no es parte del listado («Claro, aquí tienes nuestras tiendas»).
       const encabezado = text.split("\n").find((l) => l.trim() && !tiendas.some((t) => l.includes(t.title) || l.includes(t.description)))?.trim();
-      await sendBotOptions(ctx.conversationId, (encabezado || "Estas son nuestras tiendas. Toca la que te quede más cerca:").slice(0, 900), tiendas, {
-        kind: "options",
-      });
+      // Si el modelo solo escribió un saludo, la lista llegaría sin decir qué hacer con ella. Se le añade la
+      // pregunta; si ya orientaba («¿cuál te queda más cerca?»), se respeta tal cual.
+      const orienta = encabezado && /(cerca|elige|elegir|toca|sucursal|tienda|prefier)/i.test(encabezado);
+      const cabecera = orienta ? encabezado! : `${encabezado ? `${encabezado}\n\n` : ""}¿Cuál sucursal te queda más cerca?`;
+      await sendBotOptions(ctx.conversationId, cabecera.slice(0, 900), tiendas, { kind: "options" });
       return { outcome: "reply", detail: "tiendas enviadas como lista", stats };
     } catch (err) {
       console.error("[agent] no se pudo enviar la lista de tiendas; va como texto", err);
