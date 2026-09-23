@@ -18,7 +18,7 @@ export const LEAD_STAGE_HINT: Record<LeadStage, string> = {
   seguimiento: "Conversación viva: aún se puede cerrar la cita.",
   sin_respuesta: "Lleva 24 h sin contestar. Arriba, quien estuvo más cerca de agendar.",
   cita_agendada: "Objetivo cumplido: tiene su cita por delante.",
-  no_asistio: "Tenía cita y no vino. Es la gente más fácil de recuperar: ya quiso venir y ya eligió sucursal.",
+  no_asistio: "Tenía cita y no vino. Es la gente más fácil de recuperar: ya quiso venir y ya eligió sucursal. Escríbele desde aquí; si no contesta, pasa solo a «Sin respuesta».",
 };
 
 /**

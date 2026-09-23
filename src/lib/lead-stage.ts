@@ -9,7 +9,9 @@ import { createAdminClient } from "@/lib/supabase/admin";
 
 /**
  * Quien lleva `NO_REPLY_HOURS` sin contestar (el último mensaje es nuestro) pasa a «Sin respuesta»; y quien lleva
- * `ARCHIVE_AFTER_DAYS` ahí sale del tablero, para que esa columna no crezca sin fin.
+ * `ARCHIVE_AFTER_DAYS` ahí sale del tablero, para que esa columna no crezca sin fin. Lo mismo vale para quien
+ * no vino a su cita, pero solo después de que alguien le haya escrito: mientras nadie lo haga, sigue siendo
+ * trabajo pendiente y se queda a la vista.
  * Devuelve cuántos cambiaron, para poder verlo en Sistema.
  */
 export async function refreshLeadStages(): Promise<{ sinRespuesta: number; archivados: number }> {
@@ -38,6 +40,49 @@ export async function refreshLeadStages(): Promise<{ sinRespuesta: number; archi
       .select("id");
     sinRespuesta = moved?.length ?? 0;
   }
+
+  // ── Los que no vinieron, cuando ya se les escribió y no contestaron ──
+  // «No asistió» es una lista de trabajo: quien está ahí espera que alguien le ofrezca otro horario. Por eso
+  // NO envejece solo: mientras nadie le haya escrito, se queda a la vista por mucho tiempo que pase. Pero si
+  // ya se le escribió y no contestó, deja de ser trabajo pendiente y pasa a «Sin respuesta», donde envejece y
+  // se archiva como los demás. Si no, la columna acabaría siendo un cementerio.
+  let noAsistioCerrados = 0;
+  const { data: ausentes } = await db
+    .from("leads")
+    .select("id")
+    .eq("stage", "no_asistio")
+    .is("archived_at", null)
+    .limit(2000);
+  const ausentesIds = (ausentes ?? []).map((l) => l.id as string);
+  if (ausentesIds.length) {
+    const { data: calladas } = await db
+      .from("conversations")
+      .select("id, lead_id")
+      .in("lead_id", ausentesIds)
+      .in("last_message_sender", ["bot", "humano"])
+      .lt("last_message_at", quiet);
+    const porConversacion = new Map((calladas ?? []).map((c) => [c.id as string, c.lead_id as string]));
+    if (porConversacion.size) {
+      // Solo los que recibieron el mensaje de recuperación (lo marca su `meta`, no su texto).
+      const { data: avisados } = await db
+        .from("messages")
+        .select("conversation_id")
+        .in("conversation_id", [...porConversacion.keys()])
+        .eq("direction", "out")
+        .eq("meta->>kind", "no_show");
+      const aCerrar = [...new Set((avisados ?? []).map((m) => porConversacion.get(m.conversation_id as string)!))];
+      if (aCerrar.length) {
+        const { data: movidos } = await db
+          .from("leads")
+          .update({ stage: "sin_respuesta" })
+          .in("id", aCerrar)
+          .eq("stage", "no_asistio")
+          .select("id");
+        noAsistioCerrados = movidos?.length ?? 0;
+      }
+    }
+  }
+  sinRespuesta += noAsistioCerrados;
 
   let archivados = 0;
   if (env.archiveAfterDays > 0) {
