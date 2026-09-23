@@ -449,4 +449,21 @@ describe("confirmar la tienda", () => {
     expect(texto).toBe("¿Te agendo en nuestra tienda de Huánuco?");
     expect(opciones).toEqual(["Sí, en Huánuco", "En otra tienda"]);
   }, 20_000);
+
+  it("vale cualquier forma de preguntarlo, no una frase concreta", async () => {
+    h.create.mockResolvedValueOnce(textReply("¡Claro! ¿Te gustaría agendar en Huánuco? ¿Y cuál es tu nombre completo? 😊"));
+    await runAgent(ctx);
+
+    // Además de hacerlo tocable, se queda SOLO la pregunta que toca: el nombre va al final del todo.
+    const [, texto, opciones] = h.sendOptions.mock.calls[0];
+    expect(texto).toBe("¿Te agendo en nuestra tienda de Huánuco?");
+    expect(opciones).toEqual(["Sí, en Huánuco", "En otra tienda"]);
+  }, 20_000);
+
+  it("una pregunta de horarios que nombra la tienda NO se convierte en confirmación de sucursal", async () => {
+    h.create.mockResolvedValueOnce(textReply("En Huánuco, ¿qué día te viene bien?"));
+    await runAgent(ctx);
+    const confirmaciones = h.sendOptions.mock.calls.filter((c) => String(c[1]).includes("Te agendo en nuestra tienda"));
+    expect(confirmaciones).toHaveLength(0);
+  }, 20_000);
 });

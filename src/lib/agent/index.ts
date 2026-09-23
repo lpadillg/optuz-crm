@@ -257,9 +257,14 @@ async function respond(ctx: AgentContext): Promise<RunResult> {
 
   // Confirmar la tienda también se toca, no se escribe. El modelo lo pide en texto cuando no ha consultado la
   // agenda, y el cliente acaba teniendo que teclear el nombre de su sucursal.
+  // Basta con que el modelo nombre la tienda del cliente en una pregunta: «¿te agendo en Huánuco?», «¿te
+  // gustaría agendar en Huánuco?», «¿te queda bien Huánuco?». Pedir además una palabra concreta dejaba fuera
+  // media docena de formas de decir lo mismo, y entonces la elección volvía a escribirse a mano.
+  const preguntaFranja = text.includes("?") && /(en|por|de) la ma[ñn]ana/i.test(text) && /(en|por|de) la tarde/i.test(text);
+  // Si la pregunta habla de horarios, no es una pregunta de sucursal aunque nombre la tienda.
+  const preguntaPorHorario = preguntaFranja || /\d{1,2}:\d{2}|\d{1,2}\s?(am|pm)|qué d[íi]a|que d[íi]a|cu[áa]ndo/i.test(text);
   const suya = tiendas.find((t) => toolCtx.branchId && text.includes(t.title));
-  const pideConfirmarTienda =
-    !!suya && !nombraVariasTiendas && text.includes("?") && /(sucursal|tienda)/i.test(text) && /(confirm|te agendo|te queda|correcto|es esa|esa es)/i.test(text);
+  const pideConfirmarTienda = !!suya && !nombraVariasTiendas && !preguntaPorHorario && text.includes("?");
   if (pideConfirmarTienda && !toolCtx.handedOff) {
     try {
       await sendBotOptions(ctx.conversationId, `¿Te agendo en nuestra tienda de ${suya!.title}?`, [`Sí, en ${suya!.title}`, "En otra tienda"], { kind: "options" });
@@ -271,7 +276,6 @@ async function respond(ctx: AgentContext): Promise<RunResult> {
 
   // «¿Mañana o tarde?» también sale tocable. El modelo la escribe en texto cuando no ha consultado la agenda
   // todavía, y entonces el cliente tiene que responder escribiendo.
-  const preguntaFranja = text.includes("?") && /(en|por|de) la ma[ñn]ana/i.test(text) && /(en|por|de) la tarde/i.test(text);
   if (preguntaFranja && !toolCtx.handedOff) {
     try {
       const pregunta = text.split(/\r?\n/).find((l) => l.includes("?"))?.trim() || "¿Prefieres en la mañana o en la tarde?";
