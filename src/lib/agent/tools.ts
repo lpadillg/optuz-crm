@@ -5,6 +5,7 @@ import { cancelAppointment, listUpcomingAppointments } from "@/lib/appointment-o
 import { attentionInfo } from "@/lib/attention";
 import { grantPromotions, revokeAll } from "@/lib/consent";
 import { sendBotOptions } from "@/lib/outbound";
+import type { Option } from "@/lib/whatsapp/interactive";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { addDays, diaLargo, etiquetaBoton, formatLima, formatLimaTime, limaDateString, parseLimaLocal } from "@/lib/time";
 import { pareceNombreReal } from "@/lib/nombre";
@@ -15,7 +16,7 @@ import { humanPauseMs } from "@/lib/typing";
  * elección es siempre la misma (mañana/tarde, horarios): así los botones no dependen de que el modelo recuerde
  * llamar a send_options. Si WhatsApp los rechaza, devuelve false y el agente responde con texto normal.
  */
-async function ofrecerBotones(ctx: ToolContext, texto: string, opciones: string[], kind = "options"): Promise<boolean> {
+async function ofrecerBotones(ctx: ToolContext, texto: string, opciones: Option[], kind = "options"): Promise<boolean> {
   try {
     const pausa = humanPauseMs(texto);
     if (pausa > 0) await new Promise((r) => setTimeout(r, pausa));
@@ -330,8 +331,10 @@ async function evidenceOf(db: ReturnType<typeof createAdminClient>, ctx: ToolCon
  * cinco nombres en texto y el cliente tenía que teclear el suyo).
  */
 async function pedirSucursal(ctx: ToolContext): Promise<ToolResult> {
-  const { data } = await createAdminClient().from("branches").select("nombre").eq("activa", true).order("nombre");
-  const nombres = (data ?? []).map((b) => b.nombre as string);
+  // Con la dirección debajo de cada tienda: quien no conoce la ciudad no puede saber cuál le queda cerca
+  // leyendo solo cinco nombres, que es justo lo que se le está preguntando.
+  const { data } = await createAdminClient().from("branches").select("nombre, direccion").eq("activa", true).order("nombre");
+  const nombres = (data ?? []).map((b) => ({ title: b.nombre as string, description: b.direccion as string }));
   if (nombres.length >= 2 && (await ofrecerBotones(ctx, "¿Cuál de nuestras tiendas te queda más cerca?", nombres))) {
     return json({ preguntado: true, siguiente_paso: "Ya le pregunté la sucursal con la lista de tiendas. NO escribas más en este turno; cuando elija una, usa set_branch." });
   }

@@ -476,3 +476,19 @@ describe("ya tiene cita en otra sucursal", () => {
     expect(preguntas).toHaveLength(0);
   });
 });
+
+/**
+ * Las cinco tiendas se ofrecen con su dirección debajo. Quien no conoce la ciudad no puede decidir cuál le
+ * queda cerca leyendo solo cinco nombres, que es exactamente lo que se le está preguntando.
+ */
+describe("la lista de tiendas lleva las direcciones", () => {
+  it("al pedir la sucursal desde una herramienta, cada opción trae su dirección", async () => {
+    const ctx = { leadId: "l1", conversationId: "c1", branchId: null, handedOff: false };
+    h.sendBotOptions.mockClear();
+    await executeTool("get_availability", { date: "2099-01-05" }, ctx);
+
+    const opciones = h.sendBotOptions.mock.calls.at(-1)?.[2] as { title: string; description?: string }[];
+    expect(opciones.length).toBeGreaterThanOrEqual(2);
+    expect(opciones.every((o) => typeof o === "object" && !!o.description)).toBe(true);
+  });
+});
