@@ -39,6 +39,12 @@ export const MENSAJES: MensajeDef[] = [
     huecos: ["promo", "alcance"],
   },
   {
+    clave: "promo:explicar",
+    cuando: "Cuando el cliente pregunta en qué consiste la promoción",
+    texto: "*{{titulo}}*\n\n{{descripcion}}",
+    huecos: ["titulo", "descripcion"],
+  },
+  {
     clave: "cita:sucursal",
     cuando: "Para elegir tienda, cuando no sabemos cuál le queda cerca",
     texto: "¿Cuál sucursal te queda más cerca?",

@@ -44,6 +44,8 @@ export interface Tienda {
 
 export interface PromoVigente {
   titulo: string;
+  /** Lo que el negocio cargó en el panel: es la única versión válida de la oferta. */
+  descripcion?: string;
   enTodas: boolean;
 }
 
@@ -65,6 +67,9 @@ const SE_SALE = /\?|\b(cuanto|precio|cuesta|garantia|reparar|direccion|donde|com
 
 /** «En otra tienda»: la opcion que se ofrece junto a la sucursal de siempre. */
 const QUIERE_OTRA_TIENDA = /^(en otra tienda|otra tienda|en otra|otra|no|cambiar de tienda|otra sucursal)$/;
+/** Pregunta por la promoción: «en qué consiste», «cómo es», «qué incluye», «no entendí». */
+const PREGUNTA_POR_LA_PROMO =
+  /(en que consiste|de que trata|como es|como funciona|que incluye|en que consta|no entiendo|no entendi|explicame|mas detalles|como aplica)/;
 
 export const pideCita = (texto: string) => PIDE_CITA.test(normal(texto));
 export const vinoPorLaPromo = (texto: string) => MENCIONA_PROMO.test(normal(texto));
@@ -199,6 +204,28 @@ export interface Entrada {
  * Lleva la cita un paso más. Devuelve `atendido: true` cuando ya respondió al cliente (y entonces no se llama
  * al modelo) y `false` cuando no le toca: o no está agendando, o el cliente preguntó otra cosa.
  */
+/**
+ * Explica la promoción con lo que el negocio cargó en el panel, palabra por palabra.
+ *
+ * El modelo se la inventaba: a un «¿en qué consiste?» contestó que el segundo par era gratis «para lentes de
+ * la misma medida, de sol o de prescripción», condiciones que nadie había escrito. Una oferta mal explicada
+ * es una promesa que alguien tiene que cumplir en el mostrador.
+ */
+export async function explicarPromo(
+  conversationId: string,
+  texto: string,
+  promo: PromoVigente | null | undefined,
+): Promise<boolean> {
+  if (!promo?.descripcion) return false;
+  const t = normal(texto);
+  if (!PREGUNTA_POR_LA_PROMO.test(t) && !(vinoPorLaPromo(t) && t.includes("?"))) return false;
+  const msg = await cargarMensajes();
+  await sendBotText(conversationId, msg("promo:explicar", { titulo: promo.titulo, descripcion: promo.descripcion }), {
+    kind: "promo:explicar",
+  });
+  return true;
+}
+
 export async function conducirCita(e: Entrada): Promise<Resultado> {
   const { conversationId, leadId, texto, tiendas } = e;
   if (tiendas.length === 0) return { atendido: false };

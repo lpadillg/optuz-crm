@@ -10,7 +10,7 @@ import { sendBotOptions } from "@/lib/outbound";
 import { sendWhatsAppText } from "@/lib/whatsapp/client";
 import { toTurns } from "./history";
 import { converse, type RunStats } from "./llm";
-import { conducirCita, darBienvenida, esSaludoSuelto } from "./flujo-cita";
+import { conducirCita, darBienvenida, esSaludoSuelto, explicarPromo } from "./flujo-cita";
 import { dynamicContext, staticSystemPrompt } from "./prompt";
 import type { ToolContext } from "./tools";
 
@@ -192,12 +192,20 @@ async function respond(ctx: AgentContext): Promise<RunResult> {
   const ahora = new Date().toISOString();
   const { data: promos } = await db
     .from("promotions")
-    .select("titulo, branch_id")
+    .select("titulo, descripcion, branch_id")
     .eq("active", true)
     .lte("valid_from", ahora)
     .gte("valid_to", ahora)
     .limit(1);
-  const promo = promos?.[0] ? { titulo: promos[0].titulo as string, enTodas: !promos[0].branch_id } : null;
+  const promo = promos?.[0]
+    ? { titulo: promos[0].titulo as string, descripcion: promos[0].descripcion as string, enTodas: !promos[0].branch_id }
+    : null;
+
+  // Explicar la oferta es repetir lo que el negocio escribió, no redactarlo: el modelo se inventaba
+  // condiciones que nadie había puesto, y eso acaba siendo una promesa que cumplir en el mostrador.
+  if (await explicarPromo(ctx.conversationId, ultimoDelCliente as string, promo)) {
+    return { outcome: "reply", detail: "promoción explicada con lo cargado en el panel", stats: undefined };
+  }
 
   const pasoCita = await conducirCita({
     conversationId: ctx.conversationId,

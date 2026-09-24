@@ -54,7 +54,7 @@ vi.mock("@/lib/appointments", () => ({
   findNextSlots: async () => h.state.proximos,
 }));
 
-import { conducirCita, diaElegido, franjaElegida, horaElegida, horaPedida, pideCita, proximosDias, tiendaNombrada } from "./flujo-cita";
+import { conducirCita, diaElegido, explicarPromo, franjaElegida, horaElegida, horaPedida, pideCita, proximosDias, tiendaNombrada } from "./flujo-cita";
 
 const TIENDAS = [
   { nombre: "Huánuco", direccion: "Jr. 28 de Julio 1131" },
@@ -360,5 +360,35 @@ describe("el día escrito a mano", () => {
   it("y no confunde lo que no es un día", () => {
     expect(diaElegido("gracias", dias)).toBeNull();
     expect(diaElegido("¿cuánto cuesta?", dias)).toBeNull();
+  });
+});
+
+/**
+ * A un «¿en qué consiste la promoción?» el modelo contestó que el segundo par era gratis «para lentes de la
+ * misma medida, de sol o de prescripción»: condiciones que nadie había escrito. Explicar una oferta es
+ * repetir lo que el negocio cargó, no redactarlo.
+ */
+describe("explicar la promoción", () => {
+  const PROMO = {
+    titulo: "2x1: el segundo par completo, gratis",
+    descripcion: "Compras tus lunas Blue Block y te llevas un Antireflex gratis.",
+    enTodas: true,
+  };
+
+  it("responde con lo cargado en el panel, palabra por palabra", async () => {
+    const atendido = await explicarPromo("c1", "En que consiste la promocion? No entendi", PROMO);
+    expect(atendido).toBe(true);
+    const texto = h.sendBotText.mock.calls.at(-1)?.[1] as string;
+    expect(texto).toContain(PROMO.titulo);
+    expect(texto).toContain(PROMO.descripcion);
+  });
+
+  it("no se mete cuando el cliente pregunta otra cosa", async () => {
+    expect(await explicarPromo("c1", "¿cuánto cuesta un lente?", PROMO)).toBe(false);
+    expect(await explicarPromo("c1", "quiero una cita", PROMO)).toBe(false);
+  });
+
+  it("sin promoción cargada, no inventa nada", async () => {
+    expect(await explicarPromo("c1", "¿en qué consiste la promo?", null)).toBe(false);
   });
 });
