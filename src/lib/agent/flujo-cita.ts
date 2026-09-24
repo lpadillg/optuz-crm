@@ -26,6 +26,8 @@ const normal = (t: string) => t.normalize("NFD").replace(/[̀-ͯ]/g, "").toLower
 export interface Borrador {
   /** Cuándo se tocó por última vez, en ISO. Un borrador viejo no se retoma: se empieza de cero. */
   desde?: string;
+  /** Dijo que quiere otra tienda distinta a la que tenía guardada: hay que enseñarle todas. */
+  otraTienda?: boolean;
   sucursal?: string;
   /** "YYYY-MM-DD" en hora de Lima. */
   fecha?: string;
@@ -60,6 +62,9 @@ const PIDE_CITA =
 const MENCIONA_PROMO = /\b(2x1|2 x 1|promo|promocion|oferta|publicidad|anuncio|descuento)\b/;
 /** Frases con las que alguien se baja del flujo: ya no está eligiendo, está preguntando otra cosa. */
 const SE_SALE = /\?|\b(cuanto|precio|cuesta|garantia|reparar|direccion|donde|como llego|horario|abren|cierran)\b/;
+
+/** «En otra tienda»: la opcion que se ofrece junto a la sucursal de siempre. */
+const QUIERE_OTRA_TIENDA = /^(en otra tienda|otra tienda|en otra|otra|no|cambiar de tienda|otra sucursal)$/;
 
 export const pideCita = (texto: string) => PIDE_CITA.test(normal(texto));
 export const vinoPorLaPromo = (texto: string) => MENCIONA_PROMO.test(normal(texto));
@@ -171,7 +176,14 @@ export async function conducirCita(e: Entrada): Promise<Resultado> {
 
   // ── Recoger lo que acaba de decir, si es una de nuestras opciones ──
   const tienda = tiendaNombrada(texto, tiendas);
-  if (tienda) borrador.sucursal = tienda.nombre;
+  if (tienda) {
+    borrador.sucursal = tienda.nombre;
+    borrador.otraTienda = undefined;
+  } else if (QUIERE_OTRA_TIENDA.test(normal(texto))) {
+    // Tocó «En otra tienda»: no vale volver a proponerle la de siempre, hay que enseñarle todas. Sin esto se
+    // quedaba en bucle, ofreciéndole una y otra vez la tienda que acababa de rechazar.
+    borrador.otraTienda = true;
+  }
 
   const dias = proximosDias();
   const dia = diaElegido(texto, dias);
@@ -202,7 +214,7 @@ export async function conducirCita(e: Entrada): Promise<Resultado> {
         : "";
     await guardarBorrador(conversationId, borrador);
 
-    if (e.branchNombre) {
+    if (e.branchNombre && !borrador.otraTienda) {
       await sendBotOptions(
         conversationId,
         `${saludo}${porLaPromo}\n\n¿Te agendo en nuestra tienda de *${e.branchNombre}*?`,

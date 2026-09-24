@@ -287,3 +287,21 @@ describe("saludar no es responder", () => {
     expect(h.sendBotOptions.mock.calls.at(-1)?.[1]).toContain("¿Cuál sucursal te queda más cerca?");
   });
 });
+
+describe("«En otra tienda»", () => {
+  it("no vuelve a proponer la misma: enseña todas", async () => {
+    // Sin esto se quedaba en bucle, ofreciendo una y otra vez la tienda que el cliente acababa de rechazar.
+    h.state.borrador = { desde: new Date().toISOString() };
+    const r = await conducir("En otra tienda", { branchNombre: "Tingo María", branchId: "b-tingo" });
+    expect(r.atendido).toBe(true);
+    const [, texto, opciones] = h.sendBotOptions.mock.calls.at(-1)!;
+    expect(texto).toContain("¿Cuál sucursal te queda más cerca?");
+    expect((opciones as { title: string }[]).length).toBe(TIENDAS.length);
+  });
+
+  it("y si luego elige una, se queda con esa", async () => {
+    h.state.borrador = { desde: new Date().toISOString(), otraTienda: true };
+    await conducir("Huánuco", { branchNombre: "Tingo María", branchId: "b-tingo" });
+    expect(h.sendBotOptions.mock.calls.at(-1)?.[1]).toContain("¿Qué día te viene bien?");
+  });
+});
