@@ -83,9 +83,10 @@ export function proximosDias(desde = new Date(), cuantos = DIAS_OFRECIDOS): { fe
     const fecha = addDays(hoy, i);
     const d = new Date(`${fecha}T12:00:00-05:00`);
     if (d.getUTCDay() === 0) continue; // domingo cerrado
-    const nombre = new Intl.DateTimeFormat("es-PE", { timeZone: "America/Lima", weekday: "short", day: "numeric" })
-      .format(d)
-      .replace(".", "");
+    // Día completo y con mayúscula: «vie 25» en minúscula desentona junto a «Hoy» y «Mañana», y un botón de
+    // WhatsApp admite 20 caracteres — «Miércoles 24» son doce.
+    const largo = new Intl.DateTimeFormat("es-PE", { timeZone: "America/Lima", weekday: "long", day: "numeric" }).format(d);
+    const nombre = largo.charAt(0).toUpperCase() + largo.slice(1);
     dias.push({ fecha, etiqueta: i === 0 ? "Hoy" : i === 1 ? "Mañana" : nombre });
   }
   return dias;

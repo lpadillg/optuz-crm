@@ -102,7 +102,9 @@ describe("reconocer lo que dice el cliente", () => {
 
   it("los días que ofrece son los suyos, y nunca un domingo", () => {
     const dias = proximosDias(new Date("2026-09-25T12:00:00-05:00")); // viernes
-    expect(dias.map((d) => d.etiqueta)).toEqual(["Hoy", "Mañana", "lun 28"]); // el domingo 27 se salta
+    expect(dias.map((d) => d.etiqueta)).toEqual(["Hoy", "Mañana", "Lunes 28"]); // el domingo 27 se salta
+    // Los botones de WhatsApp admiten 20 caracteres: el día escrito entero cabe de sobra.
+    expect(Math.max(...dias.map((d) => d.etiqueta.length))).toBeLessThanOrEqual(20);
     expect(diaElegido("Mañana", dias)).toBe("2026-09-26");
     expect(diaElegido("el jueves que viene", dias)).toBeNull();
   });
