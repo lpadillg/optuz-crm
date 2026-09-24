@@ -258,3 +258,32 @@ describe("los pasos reconocen lo que el cliente eligió", () => {
     expect(ultimasOpciones()?.[1]).toContain("8:00 am");
   });
 });
+
+/**
+ * Lo que rompía la conversación: un saludo tomado por una respuesta. Alguien escribía «buenas noches» y se le
+ * contestaba «¡Perfecto, te agendo en Tingo María! ¿Qué día te viene bien?», retomando una cita de horas
+ * antes que él ya no tenía en la cabeza.
+ */
+describe("saludar no es responder", () => {
+  it("un saludo a media cita no avanza el flujo: contesta el modelo", async () => {
+    h.state.borrador = { sucursal: "Tingo María", desde: new Date().toISOString() };
+    const r = await conducir("Buenas noches");
+    expect(r.atendido).toBe(false);
+    expect(h.sendBotOptions).not.toHaveBeenCalled();
+  });
+
+  it("un borrador de hace horas caduca: no se retoma", async () => {
+    h.state.borrador = { sucursal: "Tingo María", desde: new Date(Date.now() - 5 * 3600_000).toISOString() };
+    const r = await conducir("¿cuánto cuesta el examen?");
+    expect(r.atendido).toBe(false);
+    // Y se limpia, para que el siguiente mensaje empiece de cero.
+    expect(h.state.guardados.at(-1)).toBeNull();
+  });
+
+  it("al retomar no se le atribuye una elección que no hizo", async () => {
+    h.state.borrador = { sucursal: "Tingo María", desde: new Date().toISOString() };
+    await conducir("quiero agendar");
+    // Vuelve a empezar por la sucursal, sin el «¡Perfecto, te agendo en…!».
+    expect(h.sendBotOptions.mock.calls.at(-1)?.[1]).toContain("¿Cuál sucursal te queda más cerca?");
+  });
+});

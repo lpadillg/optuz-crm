@@ -24,6 +24,8 @@ const normal = (t: string) => t.normalize("NFD").replace(/[̀-ͯ]/g, "").toLower
 
 /** Lo que llevamos reunido de la cita que se está armando. */
 export interface Borrador {
+  /** Cuándo se tocó por última vez, en ISO. Un borrador viejo no se retoma: se empieza de cero. */
+  desde?: string;
   sucursal?: string;
   /** "YYYY-MM-DD" en hora de Lima. */
   fecha?: string;
@@ -45,6 +47,13 @@ export interface PromoVigente {
 
 /** Cuántos días se ofrecen para elegir. Tres botones es lo que cabe sin que WhatsApp los convierta en lista. */
 const DIAS_OFRECIDOS = 3;
+
+/**
+ * Cuánto se guarda una cita a medias. Pasado ese rato, quien vuelve a escribir empieza de nuevo: retomar un
+ * borrador de ayer hace que a un «buenas noches» se le conteste «¿qué día te viene bien?», como si la
+ * conversación no hubiera parado nunca.
+ */
+const CADUCA_EN_MS = 3 * 60 * 60 * 1000;
 
 const PIDE_CITA =
   /\b(quiero|necesito|deseo|quisiera|me gustaria|puedo|podria|queria)\b[^.?!]{0,40}\b(cita|agendar|reservar|separar|evaluacion|examen)\b|^\s*(agendar|cita|quiero mi cita|separar cita)\b/;
@@ -113,7 +122,8 @@ async function leerBorrador(conversationId: string): Promise<Borrador | null> {
 }
 
 async function guardarBorrador(conversationId: string, cita: Borrador | null): Promise<void> {
-  await createAdminClient().from("conversations").update({ cita }).eq("id", conversationId);
+  const conFecha = cita ? { ...cita, desde: new Date().toISOString() } : null;
+  await createAdminClient().from("conversations").update({ cita: conFecha }).eq("id", conversationId);
 }
 
 export type Resultado = { atendido: true; detalle: string } | { atendido: false; detalle?: string };
@@ -142,11 +152,18 @@ export async function conducirCita(e: Entrada): Promise<Resultado> {
   // Los textos salen del panel: el tono con el que se le habla al cliente lo decide el negocio.
   const msg = await cargarMensajes();
   const guardado = await leerBorrador(conversationId);
-  const enMarcha = guardado !== null;
-  let borrador: Borrador = guardado ?? {};
+  const vigente = guardado !== null && (!guardado.desde || Date.now() - new Date(guardado.desde).getTime() < CADUCA_EN_MS);
+  const enMarcha = guardado !== null && vigente;
+  let borrador: Borrador = enMarcha ? guardado! : {};
+  if (guardado && !vigente) await guardarBorrador(conversationId, null); // caducó: se empieza de cero
 
   // ── ¿Empieza una cita? ──
   if (!enMarcha && !pideCita(texto)) return { atendido: false };
+
+  // Un saludo no es una respuesta: quien escribe «buenas noches» no acaba de elegir nada. Avanzar el flujo
+  // con eso le contestaba «¡Perfecto, te agendo en Tingo María! ¿Qué día te viene bien?» a alguien que solo
+  // había saludado.
+  if (enMarcha && esSaludoSuelto(texto)) return { atendido: false, detalle: "solo saludó: responde el modelo" };
 
   // Volver a pedir cita a medio armar es empezar de cero: puede querer otro día, otra tienda o que sea para
   // otra persona. Seguir reclamando el dato que faltaba es no leer lo que la persona acaba de escribir.
@@ -218,7 +235,10 @@ export async function conducirCita(e: Entrada): Promise<Resultado> {
     await guardarBorrador(conversationId, borrador);
     // Cada paso repite lo que el cliente acaba de elegir: así ve que quedó registrado y la conversación no
     // suena a formulario. Preguntar a secas «¿qué día?» es correcto y frío a la vez.
-    await sendBotOptions(conversationId, msg("cita:dia", { sucursal: borrador.sucursal }), dias.map((d) => d.etiqueta), {
+    // El «¡Perfecto, te agendo en X!» solo vale si ACABA de elegirla: dicho al retomar, le atribuye al cliente
+    // una decisión que no tomó en ese mensaje.
+    const clave = tienda ? "cita:dia" : "cita:dia-retomar";
+    await sendBotOptions(conversationId, msg(clave, { sucursal: borrador.sucursal }), dias.map((d) => d.etiqueta), {
       kind: "cita:dia",
     });
     return { atendido: true, detalle: "paso 2: elegir día" };

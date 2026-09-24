@@ -57,6 +57,12 @@ export const MENSAJES: MensajeDef[] = [
     huecos: ["sucursal"],
   },
   {
+    clave: "cita:dia-retomar",
+    cuando: "Para elegir el día, cuando la tienda ya estaba elegida de antes",
+    texto: "¿Qué día te viene bien?",
+    huecos: [],
+  },
+  {
     clave: "cita:franja",
     cuando: "Para elegir mañana o tarde, ya con el día elegido",
     texto: "Anotado, el *{{dia}}*. ¿Lo prefieres en la mañana o en la tarde?",
