@@ -338,3 +338,27 @@ describe("la hora escrita a mano", () => {
     expect(h.sendBotOptions.mock.calls.at(-1)?.[1]).toContain("ya no me queda cupo");
   });
 });
+
+/**
+ * El botón es lo cómodo, pero mucha gente escribe el día a su manera. Si solo se acepta la etiqueta exacta,
+ * el paso se repite sin más: fue lo que pasó al cambiar el formato de los botones con una cita abierta.
+ */
+describe("el día escrito a mano", () => {
+  const dias = proximosDias(new Date("2026-09-23T10:00:00-05:00")); // miércoles: Hoy, Mañana, Viernes 25
+
+  it("vale el nombre del día, entero o abreviado", () => {
+    expect(diaElegido("Viernes 25", dias)).toBe("2026-09-25");
+    expect(diaElegido("vie 25", dias)).toBe("2026-09-25"); // la etiqueta antigua sigue valiendo
+    expect(diaElegido("el viernes", dias)).toBe("2026-09-25");
+  });
+
+  it("vale el número del día", () => {
+    expect(diaElegido("el 25", dias)).toBe("2026-09-25");
+    expect(diaElegido("25", dias)).toBe("2026-09-25");
+  });
+
+  it("y no confunde lo que no es un día", () => {
+    expect(diaElegido("gracias", dias)).toBeNull();
+    expect(diaElegido("¿cuánto cuesta?", dias)).toBeNull();
+  });
+});

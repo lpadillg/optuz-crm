@@ -98,10 +98,27 @@ export function tiendaNombrada(texto: string, tiendas: Tienda[]): Tienda | null 
   return tiendas.find((s) => t.includes(normal(s.nombre))) ?? null;
 }
 
-/** El día que eligió, si es una de las opciones que le ofrecimos. */
+/**
+ * El día que eligió. Vale tocar el botón, pero también escribirlo a su manera: «viernes», «vie 25», «el 25»,
+ * «mañana». Comparar solo contra la etiqueta exacta dejaba fuera todo lo demás —y hasta el mismo botón, si
+ * se había enviado con otro formato— y entonces el paso se repetía sin más.
+ */
 export function diaElegido(texto: string, dias: { fecha: string; etiqueta: string }[]): string | null {
   const t = normal(texto);
-  return dias.find((d) => t === normal(d.etiqueta) || t.includes(normal(d.etiqueta)))?.fecha ?? null;
+  if (!t) return null;
+  const numero = t.match(/\b(\d{1,2})\b/)?.[1];
+
+  for (const d of dias) {
+    const fecha = new Date(`${d.fecha}T12:00:00-05:00`);
+    const diaMes = String(fecha.getUTCDate());
+    const largo = normal(new Intl.DateTimeFormat("es-PE", { timeZone: "America/Lima", weekday: "long" }).format(fecha));
+    const corto = largo.slice(0, 3); // «vie», «sab»
+
+    if (t === normal(d.etiqueta) || t.includes(normal(d.etiqueta))) return d.fecha;
+    if (t.includes(largo) || new RegExp(`\b${corto}\b`).test(t)) return d.fecha;
+    if (numero && numero === diaMes) return d.fecha;
+  }
+  return null;
 }
 
 export function franjaElegida(texto: string): "mañana" | "tarde" | null {
