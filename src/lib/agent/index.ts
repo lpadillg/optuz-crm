@@ -10,7 +10,7 @@ import { sendBotOptions } from "@/lib/outbound";
 import { sendWhatsAppText } from "@/lib/whatsapp/client";
 import { toTurns } from "./history";
 import { converse, type RunStats } from "./llm";
-import { conducirSucursal } from "./paso-sucursal";
+import { conducirCita } from "./flujo-cita";
 import { dynamicContext, staticSystemPrompt } from "./prompt";
 import type { ToolContext } from "./tools";
 
@@ -173,10 +173,10 @@ async function respond(ctx: AgentContext): Promise<RunResult> {
     .order("created_at");
   if (knowledgeErr) throw knowledgeErr;
 
-  // ── El paso de la sucursal lo lleva el código, no el modelo ──
-  // Elegir tienda no tiene nada de creativo, y pedírselo por escrito al modelo obligaba a adivinar después,
-  // leyendo su texto, si lo había hecho. Si falta ese dato se pregunta aquí y el turno acaba: además de salir
-  // siempre igual, se ahorra la llamada al modelo.
+  // ── El flujo de la cita lo lleva el código, no el modelo ──
+  // Agendar tiene cinco datos y un orden; no hay nada creativo. Pedírselos al modelo obligaba a adivinar
+  // después, leyendo su texto, en qué paso creía estar. Si falta alguno se pregunta aquí, con botones, y el
+  // turno acaba: además de salir siempre igual, se ahorra la llamada al modelo.
   const ultimoDelCliente = [...history].reverse().find((m) => m.direction === "in")?.content ?? "";
   // La promoción vigente, para reconocerla si el cliente viene por ella (mucha gente escribe «vi el 2x1»).
   const ahora = new Date().toISOString();
@@ -189,7 +189,7 @@ async function respond(ctx: AgentContext): Promise<RunResult> {
     .limit(1);
   const promo = promos?.[0] ? { titulo: promos[0].titulo as string, enTodas: !promos[0].branch_id } : null;
 
-  const pasoSucursal = await conducirSucursal({
+  const pasoCita = await conducirCita({
     conversationId: ctx.conversationId,
     leadId: lead.id,
     branchId: lead.branch_id,
@@ -199,7 +199,7 @@ async function respond(ctx: AgentContext): Promise<RunResult> {
     nombreCliente: lead.nombre,
     promo,
   });
-  if (pasoSucursal.atendido) return { outcome: "reply", detail: pasoSucursal.detalle, stats: undefined };
+  if (pasoCita.atendido) return { outcome: "reply", detail: pasoCita.detalle, stats: undefined };
   // Pudo quedar elegida justo ahora: el resto del turno tiene que saberlo.
   if (!toolCtx.branchId) {
     const { data: fresco } = await db.from("leads").select("branch_id, branches(nombre)").eq("id", lead.id).maybeSingle();

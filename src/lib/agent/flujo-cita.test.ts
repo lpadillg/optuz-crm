@@ -1,0 +1,224 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+/**
+ * El flujo de la cita, paso a paso y sin modelo de por medio.
+ *
+ * Lo que se fija aquí es lo que antes fallaba por la redacción: que cada paso salga SIEMPRE igual, que las
+ * respuestas del cliente se reconozcan porque son las opciones que ofrecimos, y que quien pregunta otra cosa
+ * no quede atrapado en el guion.
+ */
+const h = vi.hoisted(() => {
+  const state = {
+    borrador: null as Record<string, unknown> | null,
+    branchRow: { id: "b-huanuco" } as { id: string } | null,
+    libres: [] as string[],
+    proximos: [] as string[],
+    guardados: [] as (Record<string, unknown> | null)[],
+  };
+  function builder(table: string) {
+    const q = { table, op: "select", payload: undefined as unknown };
+    const b: Record<string, unknown> = {
+      select: () => b,
+      update: (p: Record<string, unknown>) => {
+        q.op = "update";
+        q.payload = p;
+        if (table === "conversations" && "cita" in p) state.guardados.push(p.cita as Record<string, unknown> | null);
+        return b;
+      },
+      eq: () => b,
+      maybeSingle: () =>
+        Promise.resolve({
+          data: table === "conversations" ? { cita: state.borrador } : table === "branches" ? state.branchRow : null,
+          error: null,
+        }),
+      then: (ok: (v: unknown) => unknown) => Promise.resolve({ data: null, error: null }).then(ok),
+    };
+    return b;
+  }
+  return {
+    state,
+    db: { from: builder },
+    sendBotOptions: vi.fn(),
+    sendBotText: vi.fn(),
+    bookAppointment: vi.fn(async () => ({ appointmentId: "a1", branch: { nombre: "Huánuco", direccion: "Jr. 28 de Julio 1131" } })),
+  };
+});
+
+vi.mock("server-only", () => ({}));
+vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: () => h.db }));
+vi.mock("@/lib/outbound", () => ({ sendBotOptions: h.sendBotOptions, sendBotText: h.sendBotText }));
+vi.mock("@/lib/appointments", () => ({
+  bookAppointment: h.bookAppointment,
+  BookingError: class extends Error { constructor(public code: string, m: string) { super(m); } },
+  getAvailableSlots: async () => h.state.libres,
+  findNextSlots: async () => h.state.proximos,
+}));
+
+import { conducirCita, diaElegido, franjaElegida, horaElegida, pideCita, proximosDias, tiendaNombrada } from "./flujo-cita";
+
+const TIENDAS = [
+  { nombre: "Huánuco", direccion: "Jr. 28 de Julio 1131" },
+  { nombre: "Tingo María", direccion: "Av. Tito Jaime 343" },
+];
+
+const conducir = (texto: string, extra: Record<string, unknown> = {}) =>
+  conducirCita({
+    conversationId: "c1",
+    leadId: "l1",
+    branchId: null,
+    branchNombre: null,
+    texto,
+    tiendas: TIENDAS,
+    ...extra,
+  });
+
+const ultimasOpciones = () => h.sendBotOptions.mock.calls.at(-1);
+const ultimoTexto = () => h.sendBotText.mock.calls.at(-1);
+
+beforeEach(() => {
+  h.state.borrador = null;
+  h.state.branchRow = { id: "b-huanuco" };
+  h.state.libres = [];
+  h.state.proximos = [];
+  h.state.guardados = [];
+  h.sendBotOptions.mockReset();
+  h.sendBotText.mockReset();
+  h.bookAppointment.mockClear();
+});
+
+describe("reconocer lo que dice el cliente", () => {
+  it("sabe cuándo alguien pide cita y cuándo pregunta otra cosa", () => {
+    expect(pideCita("quiero una cita")).toBe(true);
+    expect(pideCita("necesito agendar")).toBe(true);
+    expect(pideCita("¿cuánto cuesta?")).toBe(false);
+    expect(pideCita("¿dónde están?")).toBe(false);
+  });
+
+  it("reconoce la tienda tocada, escrita o sin tildes", () => {
+    expect(tiendaNombrada("Huánuco", TIENDAS)?.nombre).toBe("Huánuco");
+    expect(tiendaNombrada("Sí, en Huánuco", TIENDAS)?.nombre).toBe("Huánuco");
+    expect(tiendaNombrada("huanuco", TIENDAS)?.nombre).toBe("Huánuco");
+  });
+
+  it("los días que ofrece son los suyos, y nunca un domingo", () => {
+    const dias = proximosDias(new Date("2026-09-25T12:00:00-05:00")); // viernes
+    expect(dias.map((d) => d.etiqueta)).toEqual(["Hoy", "Mañana", "lun 28"]); // el domingo 27 se salta
+    expect(diaElegido("Mañana", dias)).toBe("2026-09-26");
+    expect(diaElegido("el jueves que viene", dias)).toBeNull();
+  });
+
+  it("«Mañana» tocando el botón del día es el DÍA, no la parte del día", async () => {
+    // Las dos cosas se llaman igual en español. Confundirlas le saltaba un paso al cliente y le ofrecía
+    // horarios de una franja que nunca eligió.
+    h.state.borrador = { sucursal: "Huánuco" };
+    h.state.libres = ["2026-09-26T13:00:00.000Z"];
+    await conducir("Mañana");
+    expect(ultimasOpciones()?.[2]).toEqual(["En la mañana", "En la tarde"]);
+  });
+
+  it("distingue la franja", () => {
+    expect(franjaElegida("En la mañana")).toBe("mañana");
+    expect(franjaElegida("En la tarde")).toBe("tarde");
+    expect(franjaElegida("mejor el jueves")).toBeNull();
+  });
+
+  it("reconoce la hora solo si es una de las ofrecidas", () => {
+    const opciones = ["2026-09-26T13:00:00.000Z", "2026-09-26T14:00:00.000Z"]; // 8 y 9 am en Lima
+    expect(horaElegida("8:00 am", opciones)).toBe(opciones[0]);
+    expect(horaElegida("a las 11", opciones)).toBeNull();
+  });
+});
+
+describe("los cinco pasos, en orden", () => {
+  it("1) pedir cita saca la lista de tiendas", async () => {
+    const r = await conducir("Hola, quiero una cita");
+    expect(r.atendido).toBe(true);
+    expect(ultimasOpciones()?.[1]).toContain("¿Cuál sucursal te queda más cerca?");
+  });
+
+  it("2) elegida la tienda, pregunta el día", async () => {
+    h.state.borrador = {};
+    const r = await conducir("Huánuco");
+    expect(r.atendido).toBe(true);
+    expect(ultimasOpciones()?.[1]).toContain("¿Qué día te viene bien?");
+  });
+
+  it("3) elegido el día, pregunta mañana o tarde", async () => {
+    h.state.borrador = { sucursal: "Huánuco" };
+    const dias = proximosDias();
+    const r = await conducir(dias[1].etiqueta);
+    expect(r.atendido).toBe(true);
+    expect(ultimasOpciones()?.[2]).toEqual(["En la mañana", "En la tarde"]);
+  });
+
+  it("4) elegida la franja, ofrece los horarios reales", async () => {
+    h.state.borrador = { sucursal: "Huánuco", fecha: "2026-09-26" };
+    h.state.libres = ["2026-09-26T13:00:00.000Z", "2026-09-26T14:00:00.000Z"];
+    const r = await conducir("En la mañana");
+    expect(r.atendido).toBe(true);
+    expect(ultimasOpciones()?.[2]).toHaveLength(2);
+  });
+
+  it("5) elegida la hora, pregunta a nombre de quién", async () => {
+    h.state.borrador = { sucursal: "Huánuco", fecha: "2026-09-26", franja: "mañana" };
+    h.state.libres = ["2026-09-26T13:00:00.000Z"];
+    const r = await conducir("8:00 am", { nombreCliente: "Luis Padilla" });
+    expect(r.atendido).toBe(true);
+    expect(ultimasOpciones()?.[1]).toContain("¿La cita es para ti");
+  });
+
+  it("6) con el nombre, la agenda y lo confirma", async () => {
+    h.state.borrador = { sucursal: "Huánuco", fecha: "2026-09-26", franja: "mañana", hora: "2026-09-26T13:00:00.000Z" };
+    const r = await conducir("Rosa Quispe Flores");
+    expect(r.atendido).toBe(true);
+    expect(h.bookAppointment).toHaveBeenCalledWith(expect.objectContaining({ pacienteNombre: "Rosa Quispe Flores" }));
+    expect(ultimoTexto()?.[1]).toContain("¡Listo!");
+    // El borrador se borra: la cita ya no se está armando.
+    expect(h.state.guardados.at(-1)).toBeNull();
+  });
+});
+
+describe("salirse del guion", () => {
+  it("una pregunta a media cita la responde el modelo, sin perder lo reunido", async () => {
+    h.state.borrador = { sucursal: "Huánuco" };
+    const r = await conducir("¿la evaluación tiene costo?");
+    expect(r.atendido).toBe(false);
+    expect(h.sendBotOptions).not.toHaveBeenCalled();
+    expect(h.state.guardados.at(-1)).toMatchObject({ sucursal: "Huánuco" });
+  });
+
+  it("quien no está agendando no entra al flujo", async () => {
+    const r = await conducir("¿atienden los domingos?");
+    expect(r.atendido).toBe(false);
+    expect(h.sendBotOptions).not.toHaveBeenCalled();
+  });
+});
+
+describe("cuando no hay cupo", () => {
+  it("no dice «no hay»: ofrece los horarios reales de los días siguientes", async () => {
+    h.state.borrador = { sucursal: "Huánuco", fecha: "2026-09-26", franja: "tarde" };
+    h.state.libres = [];
+    h.state.proximos = ["2026-09-28T19:00:00.000Z"];
+    const r = await conducir("En la tarde");
+    expect(r.atendido).toBe(true);
+    expect(ultimasOpciones()?.[1]).toContain("más próximos");
+  });
+
+  it("si tampoco hay en los días siguientes, propone la otra parte del día", async () => {
+    h.state.borrador = { sucursal: "Huánuco", fecha: "2026-09-26", franja: "tarde" };
+    h.state.libres = [];
+    h.state.proximos = [];
+    const r = await conducir("En la tarde");
+    expect(r.atendido).toBe(true);
+    expect(ultimoTexto()?.[1]).toContain("otra parte del día");
+  });
+});
+
+describe("volver a empezar", () => {
+  it("pedir cita otra vez a medio armar olvida lo anterior y vuelve a la sucursal", async () => {
+    h.state.borrador = { sucursal: "Huánuco", fecha: "2026-09-26", franja: "mañana" };
+    const r = await conducir("Quiero una cita");
+    expect(r.atendido).toBe(true);
+    expect(ultimasOpciones()?.[1]).toContain("¿Cuál sucursal te queda más cerca?");
+  });
+});
