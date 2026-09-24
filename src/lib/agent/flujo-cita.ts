@@ -3,6 +3,7 @@ import { bookAppointment, BookingError, findNextSlots, getAvailableSlots } from 
 import { sendBotOptions, sendBotText } from "@/lib/outbound";
 import { pareceNombreReal } from "@/lib/nombre";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { BUSINESS_HOURS } from "@/lib/google/slots";
 import { addDays, formatLima, formatLimaTime, limaDateString } from "@/lib/time";
 
 /**
@@ -57,7 +58,13 @@ export const vinoPorLaPromo = (texto: string) => MENCIONA_PROMO.test(normal(text
 export function proximosDias(desde = new Date(), cuantos = DIAS_OFRECIDOS): { fecha: string; etiqueta: string }[] {
   const hoy = limaDateString(desde);
   const dias: { fecha: string; etiqueta: string }[] = [];
-  for (let i = 0; dias.length < cuantos && i < 10; i++) {
+  // Pasada la última hora a la que se puede empezar una cita, «Hoy» ya no es una opción: ofrecerlo lleva al
+  // cliente a tocar un día en el que no le va a salir ni un horario.
+  const horaLima = Number(
+    new Intl.DateTimeFormat("en-GB", { timeZone: "America/Lima", hour: "2-digit", hour12: false }).format(desde),
+  );
+  const desdeI = horaLima >= BUSINESS_HOURS.closeHour - 1 ? 1 : 0;
+  for (let i = desdeI; dias.length < cuantos && i < 10 + desdeI; i++) {
     const fecha = addDays(hoy, i);
     const d = new Date(`${fecha}T12:00:00-05:00`);
     if (d.getUTCDay() === 0) continue; // domingo cerrado

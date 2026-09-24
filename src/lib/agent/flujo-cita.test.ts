@@ -107,6 +107,15 @@ describe("reconocer lo que dice el cliente", () => {
     expect(diaElegido("el jueves que viene", dias)).toBeNull();
   });
 
+  it("pasada la hora de cierre, «Hoy» deja de ofrecerse", async () => {
+    // A las 21:00 no queda ni un horario: ofrecerlo lleva a tocar un día vacío.
+    const tarde = proximosDias(new Date("2026-09-23T21:00:00-05:00"));
+    expect(tarde[0].etiqueta).toBe("Mañana");
+    // Y en horario de atención sí se ofrece.
+    const media = proximosDias(new Date("2026-09-23T10:00:00-05:00"));
+    expect(media[0].etiqueta).toBe("Hoy");
+  });
+
   it("«Mañana» tocando el botón del día es el DÍA, no la parte del día", async () => {
     // Las dos cosas se llaman igual en español. Confundirlas le saltaba un paso al cliente y le ofrecía
     // horarios de una franja que nunca eligió.
