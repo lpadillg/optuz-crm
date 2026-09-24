@@ -231,3 +231,30 @@ describe("volver a empezar", () => {
     expect(ultimasOpciones()?.[1]).toContain("¿Cuál sucursal te queda más cerca?");
   });
 });
+
+/**
+ * Que los mensajes los escriba el código no los condena a sonar a formulario. Cada paso repite lo que el
+ * cliente acaba de elegir: así ve que quedó registrado y la conversación sigue pareciendo una conversación.
+ */
+describe("los pasos reconocen lo que el cliente eligió", () => {
+  it("al preguntar el día, nombra la tienda que acaba de elegir", async () => {
+    h.state.borrador = {};
+    await conducir("Huánuco");
+    expect(ultimasOpciones()?.[1]).toContain("Huánuco");
+  });
+
+  it("al preguntar la franja, nombra el día", async () => {
+    h.state.borrador = { sucursal: "Huánuco" };
+    const dias = proximosDias();
+    await conducir(dias[1].etiqueta);
+    const texto = ultimasOpciones()?.[1] as string;
+    expect(texto).toMatch(/Anotado, el/);
+  });
+
+  it("al pedir el nombre, dice la hora que acaba de elegir", async () => {
+    h.state.borrador = { sucursal: "Huánuco", fecha: "2026-09-26", franja: "mañana" };
+    h.state.libres = ["2026-09-26T13:00:00.000Z"];
+    await conducir("8:00 am", { nombreCliente: "Luis Padilla" });
+    expect(ultimasOpciones()?.[1]).toContain("8:00 am");
+  });
+});

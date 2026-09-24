@@ -4,7 +4,7 @@ import { sendBotOptions, sendBotText } from "@/lib/outbound";
 import { pareceNombreReal } from "@/lib/nombre";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { BUSINESS_HOURS } from "@/lib/google/slots";
-import { addDays, formatLima, formatLimaTime, limaDateString } from "@/lib/time";
+import { addDays, formatLima, formatLimaTime, horaCorta, limaDateString } from "@/lib/time";
 
 /**
  * El flujo de una cita, llevado por el código.
@@ -213,16 +213,22 @@ export async function conducirCita(e: Entrada): Promise<Resultado> {
   // ── Paso 2: el día ──
   if (!borrador.fecha) {
     await guardarBorrador(conversationId, borrador);
-    await sendBotOptions(conversationId, "¿Qué día te viene bien?", dias.map((d) => d.etiqueta), { kind: "cita:dia" });
+    // Cada paso repite lo que el cliente acaba de elegir: así ve que quedó registrado y la conversación no
+    // suena a formulario. Preguntar a secas «¿qué día?» es correcto y frío a la vez.
+    const eco = tienda ? `¡Perfecto, te agendo en *${borrador.sucursal}*! ` : "";
+    await sendBotOptions(conversationId, `${eco}¿Qué día te viene bien?`, dias.map((d) => d.etiqueta), { kind: "cita:dia" });
     return { atendido: true, detalle: "paso 2: elegir día" };
   }
 
   // ── Paso 3: mañana o tarde ──
   if (!borrador.franja) {
     await guardarBorrador(conversationId, borrador);
-    await sendBotOptions(conversationId, "¿Lo prefieres en la mañana o en la tarde?", ["En la mañana", "En la tarde"], {
-      kind: "cita:franja",
-    });
+    await sendBotOptions(
+      conversationId,
+      `Anotado, el *${diaLargo(borrador.fecha)}*. ¿Lo prefieres en la mañana o en la tarde?`,
+      ["En la mañana", "En la tarde"],
+      { kind: "cita:franja" },
+    );
     return { atendido: true, detalle: "paso 3: elegir franja" };
   }
 
@@ -278,15 +284,17 @@ export async function conducirCita(e: Entrada): Promise<Resultado> {
       if (suyo && pareceNombreReal(suyo)) {
         await sendBotOptions(
           conversationId,
-          `¿La cita es para ti, *${suyo}*, o para otra persona?`,
+          `¡Listo, ${horaCorta(formatLimaTime(new Date(borrador.hora!)))}! ¿La cita es para ti, *${suyo}*, o para otra persona?`,
           [`Sí, ${suyo}`.slice(0, 20), "Es para otra persona"],
           { kind: "cita:paciente" },
         );
         return { atendido: true, detalle: "paso 5: confirmar paciente" };
       }
-      await sendBotText(conversationId, "¿A nombre de quién la agendo? Dime *nombre y apellido*, por favor 😊", {
-        kind: "cita:paciente",
-      });
+      await sendBotText(
+        conversationId,
+        `¡Listo, ${horaCorta(formatLimaTime(new Date(borrador.hora!)))}! Solo me falta un dato: ¿a nombre de quién la agendo? Dime *nombre y apellido*, por favor 😊`,
+        { kind: "cita:paciente" },
+      );
       return { atendido: true, detalle: "paso 5: pedir nombre" };
     }
   }
