@@ -35,7 +35,7 @@ vi.mock("server-only", () => ({}));
 vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: () => h.db }));
 vi.mock("@/lib/outbound", () => ({ sendBotOptions: h.sendBotOptions }));
 
-import { conducirSucursal, pideCita, tiendaNombrada } from "./paso-sucursal";
+import { conducirSucursal, pideCita, tiendaNombrada, vinoPorLaPromo } from "./paso-sucursal";
 
 const TIENDAS = [
   { nombre: "Huánuco", direccion: "Jr. 28 de Julio 1131" },
@@ -43,8 +43,8 @@ const TIENDAS = [
   { nombre: "Uchiza", direccion: "Av. Leoncio Prado 615" },
 ];
 
-const conducir = (texto: string, branchNombre: string | null = null) =>
-  conducirSucursal({ conversationId: "c1", leadId: "l1", branchId: branchNombre ? "b1" : null, branchNombre, texto, tiendas: TIENDAS });
+const conducir = (texto: string, branchNombre: string | null = null, extra: Record<string, unknown> = {}) =>
+  conducirSucursal({ conversationId: "c1", leadId: "l1", branchId: branchNombre ? "b1" : null, branchNombre, texto, tiendas: TIENDAS, ...extra });
 
 beforeEach(() => {
   h.state.entrantes = [];
@@ -123,5 +123,45 @@ describe("conducir el paso de la sucursal", () => {
     });
     expect(r.atendido).toBe(false);
     expect(h.sendBotOptions).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * Que el mensaje lo escriba el código no significa que tenga que sonar a formulario: el nombre del cliente y
+ * la promoción vigente ya los tenemos, y quien viene del anuncio espera que se lo reconozcan.
+ */
+describe("el mensaje saluda y reconoce por qué vino", () => {
+  const PROMO = { titulo: "2x1: el segundo par completo, gratis", enTodas: true };
+
+  it("saluda por su nombre cuando lo sabemos", async () => {
+    await conducir("quiero una cita", null, { nombreCliente: "Luis Padilla" });
+    expect(h.sendBotOptions.mock.calls[0][1]).toContain("¡Hola, Luis!");
+  });
+
+  it("si vino por la promoción, se la reconoce antes de preguntar nada", async () => {
+    await conducir("Hola, vi la publicidad del 2x1, quiero agendar", null, { nombreCliente: "Luis", promo: PROMO });
+    const texto = h.sendBotOptions.mock.calls[0][1] as string;
+    expect(texto).toContain("2x1: el segundo par completo, gratis");
+    expect(texto).toContain("todas nuestras tiendas");
+    expect(texto).toContain("¿Cuál sucursal te queda más cerca?");
+  });
+
+  it("si no la mencionó, no se le suelta la promoción sin venir a cuento", async () => {
+    await conducir("quiero una cita", null, { promo: PROMO });
+    expect(h.sendBotOptions.mock.calls[0][1]).not.toContain("2x1");
+  });
+
+  it("sin nombre ni promoción, el saludo sigue siendo cordial", async () => {
+    await conducir("quiero una cita");
+    expect(h.sendBotOptions.mock.calls[0][1]).toContain("¡Con gusto!");
+  });
+});
+
+describe("reconocer que viene por una promoción", () => {
+  it("da igual cómo lo escriba", () => {
+    for (const t of ["vi el 2x1", "vi la publicidad", "por la promo", "la oferta de lentes", "vi su anuncio"]) {
+      expect(vinoPorLaPromo(t), t).toBe(true);
+    }
+    expect(vinoPorLaPromo("quiero una cita")).toBe(false);
   });
 });

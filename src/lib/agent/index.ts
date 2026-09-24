@@ -178,6 +178,17 @@ async function respond(ctx: AgentContext): Promise<RunResult> {
   // leyendo su texto, si lo había hecho. Si falta ese dato se pregunta aquí y el turno acaba: además de salir
   // siempre igual, se ahorra la llamada al modelo.
   const ultimoDelCliente = [...history].reverse().find((m) => m.direction === "in")?.content ?? "";
+  // La promoción vigente, para reconocerla si el cliente viene por ella (mucha gente escribe «vi el 2x1»).
+  const ahora = new Date().toISOString();
+  const { data: promos } = await db
+    .from("promotions")
+    .select("titulo, branch_id")
+    .eq("active", true)
+    .lte("valid_from", ahora)
+    .gte("valid_to", ahora)
+    .limit(1);
+  const promo = promos?.[0] ? { titulo: promos[0].titulo as string, enTodas: !promos[0].branch_id } : null;
+
   const pasoSucursal = await conducirSucursal({
     conversationId: ctx.conversationId,
     leadId: lead.id,
@@ -185,6 +196,8 @@ async function respond(ctx: AgentContext): Promise<RunResult> {
     branchNombre: lead.branches?.nombre ?? null,
     texto: ultimoDelCliente as string,
     tiendas: (branchRows ?? []).map((b) => ({ nombre: b.nombre as string, direccion: b.direccion as string })),
+    nombreCliente: lead.nombre,
+    promo,
   });
   if (pasoSucursal.atendido) return { outcome: "reply", detail: pasoSucursal.detalle, stats: undefined };
   // Pudo quedar elegida justo ahora: el resto del turno tiene que saberlo.

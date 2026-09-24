@@ -54,6 +54,8 @@ const h = vi.hoisted(() => {
       insert: (p: unknown) => ((q.op = "insert"), (q.payload = p), b),
       update: (p: unknown) => ((q.op = "update"), (q.payload = p), b),
       eq: (k: string, v: unknown) => (q.filters.push([k, v]), b),
+      lte: (k: string, v: unknown) => (q.filters.push([k, v]), b),
+      gte: (k: string, v: unknown) => (q.filters.push([k, v]), b),
       order: () => b,
       limit: () => b,
       single: () => Promise.resolve(resolve(q)),

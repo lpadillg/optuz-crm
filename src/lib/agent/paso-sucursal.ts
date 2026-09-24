@@ -25,6 +25,18 @@ export interface Tienda {
   direccion: string;
 }
 
+export interface PromoVigente {
+  titulo: string;
+  /** Si aplica en todas las tiendas: cambia cómo se le cuenta al cliente. */
+  enTodas: boolean;
+}
+
+/** ¿El cliente vino por una promoción? («vi el 2x1», «la publicidad», «la oferta»…) */
+const MENCIONA_PROMO = /\b(2x1|2 x 1|promo|promocion|oferta|publicidad|anuncio|descuento)\b/;
+
+/** Exportada para poder probarla sola: la deteccion no debe depender de como escriba el cliente. */
+export const vinoPorLaPromo = (texto: string) => MENCIONA_PROMO.test(normal(texto));
+
 /** ¿Este mensaje del cliente pide una cita? */
 export const pideCita = (texto: string) => PIDE_CITA.test(normal(texto));
 
@@ -67,8 +79,12 @@ export async function conducirSucursal(input: {
   /** Lo último que escribió el cliente. */
   texto: string;
   tiendas: Tienda[];
+  /** Cómo se llama el cliente, para saludarlo por su nombre. */
+  nombreCliente?: string | null;
+  /** La promoción vigente, si la hay: se reconoce cuando el cliente viene por ella. */
+  promo?: PromoVigente | null;
 }): Promise<Resultado> {
-  const { conversationId, leadId, branchId, branchNombre, texto, tiendas } = input;
+  const { conversationId, leadId, branchId, branchNombre, texto, tiendas, nombreCliente, promo } = input;
   if (tiendas.length < 2) return { atendido: false };
 
   // 1. ¿Acaba de elegirla? Se guarda aquí, sin depender de que el modelo llame a set_branch.
@@ -86,11 +102,21 @@ export async function conducirSucursal(input: {
   // 3. Si ya la eligió antes en esta misma conversación, no se vuelve a preguntar.
   if (await eligioTiendaAhora(conversationId, tiendas)) return { atendido: false };
 
-  // 4. Con tienda guardada de otra vez, se confirma; sin ella, se ofrecen todas.
+  // 4. El mensaje: saludo con su nombre y, si vino por una promoción, se le reconoce antes de preguntar nada.
+  // Que lo escriba el código no significa que tenga que sonar a formulario: estos datos ya los tenemos.
+  const nombre = nombreCliente?.trim().split(/\s+/)[0];
+  const saludo = nombre ? `¡Hola, ${nombre}!` : "¡Con gusto!";
+  const porLaPromo =
+    promo && vinoPorLaPromo(texto)
+      ? ` Sí, la promoción *${promo.titulo}* está vigente${promo.enTodas ? " en todas nuestras tiendas" : ""}.`
+      : "";
+
   if (branchNombre) {
     await sendBotOptions(
       conversationId,
-      `¡Con gusto! ¿Te agendo en nuestra tienda de *${branchNombre}*?`,
+      `${saludo}${porLaPromo}
+
+¿Te agendo en nuestra tienda de *${branchNombre}*?`,
       [`Sí, en ${branchNombre}`.slice(0, 20), "En otra tienda"],
       { kind: "options" },
     );
@@ -99,7 +125,9 @@ export async function conducirSucursal(input: {
 
   await sendBotOptions(
     conversationId,
-    "¡Con gusto! ¿Cuál sucursal te queda más cerca?",
+    `${saludo}${porLaPromo}
+
+¿Cuál sucursal te queda más cerca?`,
     tiendas.map((t) => ({ title: t.nombre, description: t.direccion })),
     { kind: "options" },
   );
