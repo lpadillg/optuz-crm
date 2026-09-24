@@ -1594,3 +1594,14 @@ label.switch { flex-direction: row; align-items: center; gap: 12px; font-weight:
   text-align: center; padding: 8px; font-size: 13px; font-weight: 600; color: var(--brand);
   background: var(--panel); border: 1px solid var(--border); border-radius: 6px;
 }
+
+/* ── Mensajes del agente: el tono lo edita el negocio ──────────────────── */
+.mensajes-agente { display: grid; gap: 10px; margin-top: 10px; }
+.mensaje-agente {
+  display: grid; gap: 6px;
+  background: var(--panel); border: 1px solid var(--border); border-radius: var(--r-md); padding: 12px;
+}
+.mensaje-cuando { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.mensaje-agente textarea { width: 100%; font-size: 13px; resize: vertical; }
+.mensaje-pie { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.mensaje-pie .hint { font-size: 11.5px; }

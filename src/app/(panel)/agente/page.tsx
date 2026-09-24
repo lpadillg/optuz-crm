@@ -1,10 +1,12 @@
 import Link from "next/link";
-import { toggleAgent } from "@/app/(panel)/crm-actions";
+import { guardarMensajeAgente, restaurarMensajeAgente, toggleAgent } from "@/app/(panel)/crm-actions";
 import { FormDialog } from "@/components/form-dialog";
 import { Icon } from "@/components/icons";
 import { env } from "@/lib/env";
 import { requireAdmin } from "@/lib/session";
 import { getAgentSwitch } from "@/lib/settings";
+import { MENSAJES } from "@/lib/agent/mensajes";
+import { SubmitButton } from "@/components/submit-button";
 
 const DAY = 86_400_000;
 const fmt = (iso: string) =>
@@ -19,6 +21,9 @@ export default async function AgentPage({ searchParams }: { searchParams: Promis
   const sp = await searchParams;
   const { supabase } = await requireAdmin();
   const agent = await getAgentSwitch();
+  // Los mensajes que alguien ya cambió: el resto se muestran como vienen de fábrica.
+  const { data: editadosRows } = await supabase.from("agent_messages").select("clave, texto");
+  const editados = new Map((editadosRows ?? []).map((m) => [m.clave as string, m.texto as string]));
   const since = new Date(Date.now() - DAY).toISOString();
 
   const [knowledgeQ, runsQ, upQ, downQ] = await Promise.all([
@@ -145,6 +150,45 @@ export default async function AgentPage({ searchParams }: { searchParams: Promis
           <Kpi label="Respuestas 👍 / 👎" value={`${upQ.count ?? 0} / ${downQ.count ?? 0}`} tone={downQ.count ? "warn" : undefined} />
         </div>
       </div>
+      <div className="metric-group" style={{ marginTop: 16 }}>
+        <h3>Cómo habla al agendar una cita</h3>
+        <p className="page-intro" style={{ marginTop: 0 }}>
+          Estos mensajes los envía el agente tal cual, sin improvisar, para que cada cita salga siempre igual. El tono es
+          tuyo: cámbialo cuando quieras y se aplica en la siguiente conversación.
+        </p>
+        <div className="mensajes-agente">
+          {MENSAJES.map((m) => {
+            const editado = editados.get(m.clave);
+            return (
+              <form key={m.clave} action={guardarMensajeAgente} className="mensaje-agente">
+                <input type="hidden" name="clave" value={m.clave} />
+                <div className="mensaje-cuando">
+                  <strong>{m.cuando}</strong>
+                  {editado && <span className="tag ok">editado</span>}
+                </div>
+                <textarea name="texto" defaultValue={editado ?? m.texto} rows={m.texto.length > 120 ? 4 : 2} required />
+                <div className="mensaje-pie">
+                  {m.huecos.length > 0 ? (
+                    <span className="hint">
+                      Se rellenan solos: {m.huecos.map((h) => `{{${h}}}`).join(" · ")}
+                    </span>
+                  ) : (
+                    <span className="hint">Este mensaje no lleva datos variables.</span>
+                  )}
+                  <span className="spacer" />
+                  {editado && (
+                    <button type="submit" formAction={restaurarMensajeAgente} className="ghost btn-sm">
+                      Restaurar
+                    </button>
+                  )}
+                  <SubmitButton className="btn-sm">Guardar</SubmitButton>
+                </div>
+              </form>
+            );
+          })}
+        </div>
+      </div>
+
       <p className="muted" style={{ fontSize: 12.5 }}>
         <Link href="/sistema">Ver el detalle técnico en Sistema →</Link>
       </p>

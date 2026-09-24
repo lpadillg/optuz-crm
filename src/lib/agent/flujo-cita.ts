@@ -3,6 +3,7 @@ import { bookAppointment, BookingError, findNextSlots, getAvailableSlots } from 
 import { sendBotOptions, sendBotText } from "@/lib/outbound";
 import { pareceNombreReal } from "@/lib/nombre";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { cargarMensajes } from "./mensajes";
 import { BUSINESS_HOURS } from "@/lib/google/slots";
 import { addDays, formatLima, formatLimaTime, horaCorta, limaDateString } from "@/lib/time";
 
@@ -138,6 +139,8 @@ export async function conducirCita(e: Entrada): Promise<Resultado> {
   if (tiendas.length === 0) return { atendido: false };
 
   const db = createAdminClient();
+  // Los textos salen del panel: el tono con el que se le habla al cliente lo decide el negocio.
+  const msg = await cargarMensajes();
   const guardado = await leerBorrador(conversationId);
   const enMarcha = guardado !== null;
   let borrador: Borrador = guardado ?? {};
@@ -175,10 +178,10 @@ export async function conducirCita(e: Entrada): Promise<Resultado> {
   if (!borrador.sucursal) {
     // La guardada de otras veces no vale sin confirmar: la gente se muda, viaja o pregunta por otra tienda.
     const nombre = e.nombreCliente?.trim().split(/\s+/)[0];
-    const saludo = nombre ? `¡Hola, ${nombre}!` : "¡Con gusto!";
+    const saludo = nombre ? msg("cita:saludo", { nombre }) : "¡Con gusto!";
     const porLaPromo =
       e.promo && vinoPorLaPromo(texto)
-        ? ` Sí, la promoción *${e.promo.titulo}* está vigente${e.promo.enTodas ? " en todas nuestras tiendas" : ""}.`
+        ? ` ${msg("cita:promo", { promo: e.promo.titulo, alcance: e.promo.enTodas ? " en todas nuestras tiendas" : "" })}`
         : "";
     await guardarBorrador(conversationId, borrador);
 
@@ -193,7 +196,7 @@ export async function conducirCita(e: Entrada): Promise<Resultado> {
     }
     await sendBotOptions(
       conversationId,
-      `${saludo}${porLaPromo}\n\n¿Cuál sucursal te queda más cerca?`,
+      `${saludo}${porLaPromo}\n\n${msg("cita:sucursal")}`,
       tiendas.map((t) => ({ title: t.nombre, description: t.direccion })),
       { kind: "cita:sucursal" },
     );
@@ -215,8 +218,9 @@ export async function conducirCita(e: Entrada): Promise<Resultado> {
     await guardarBorrador(conversationId, borrador);
     // Cada paso repite lo que el cliente acaba de elegir: así ve que quedó registrado y la conversación no
     // suena a formulario. Preguntar a secas «¿qué día?» es correcto y frío a la vez.
-    const eco = tienda ? `¡Perfecto, te agendo en *${borrador.sucursal}*! ` : "";
-    await sendBotOptions(conversationId, `${eco}¿Qué día te viene bien?`, dias.map((d) => d.etiqueta), { kind: "cita:dia" });
+    await sendBotOptions(conversationId, msg("cita:dia", { sucursal: borrador.sucursal }), dias.map((d) => d.etiqueta), {
+      kind: "cita:dia",
+    });
     return { atendido: true, detalle: "paso 2: elegir día" };
   }
 
@@ -225,7 +229,7 @@ export async function conducirCita(e: Entrada): Promise<Resultado> {
     await guardarBorrador(conversationId, borrador);
     await sendBotOptions(
       conversationId,
-      `Anotado, el *${diaLargo(borrador.fecha)}*. ¿Lo prefieres en la mañana o en la tarde?`,
+      msg("cita:franja", { dia: diaLargo(borrador.fecha) }),
       ["En la mañana", "En la tarde"],
       { kind: "cita:franja" },
     );
@@ -246,7 +250,7 @@ export async function conducirCita(e: Entrada): Promise<Resultado> {
         if (proximos.length === 0) {
           await sendBotText(
             conversationId,
-            `No me queda cupo por la ${borrador.franja} esos días. ¿Te busco en la otra parte del día?`,
+            msg("cita:sin-cupo", { franja: borrador.franja }),
             { kind: "cita:sin-cupo" },
           );
           borrador.franja = undefined;
@@ -257,7 +261,7 @@ export async function conducirCita(e: Entrada): Promise<Resultado> {
         await guardarBorrador(conversationId, borrador);
         await sendBotOptions(
           conversationId,
-          `Ese día ya no me queda cupo por la ${borrador.franja}. Estos son los más próximos:`,
+          msg("cita:hora-otro-dia", { franja: borrador.franja }),
           proximos.map((s) => formatLimaTime(new Date(s))),
           { kind: "cita:hora" },
         );
@@ -265,7 +269,7 @@ export async function conducirCita(e: Entrada): Promise<Resultado> {
       }
       await sendBotOptions(
         conversationId,
-        `El ${diaLargo(borrador.fecha)} por la ${borrador.franja} tengo estos horarios:`,
+        msg("cita:hora", { dia: diaLargo(borrador.fecha), franja: borrador.franja }),
         libres.slice(0, 3).map((s) => formatLimaTime(new Date(s))),
         { kind: "cita:hora" },
       );
@@ -284,7 +288,7 @@ export async function conducirCita(e: Entrada): Promise<Resultado> {
       if (suyo && pareceNombreReal(suyo)) {
         await sendBotOptions(
           conversationId,
-          `¡Listo, ${horaCorta(formatLimaTime(new Date(borrador.hora!)))}! ¿La cita es para ti, *${suyo}*, o para otra persona?`,
+          msg("cita:paciente-confirmar", { hora: horaCorta(formatLimaTime(new Date(borrador.hora!))), nombre: suyo }),
           [`Sí, ${suyo}`.slice(0, 20), "Es para otra persona"],
           { kind: "cita:paciente" },
         );
@@ -292,7 +296,7 @@ export async function conducirCita(e: Entrada): Promise<Resultado> {
       }
       await sendBotText(
         conversationId,
-        `¡Listo, ${horaCorta(formatLimaTime(new Date(borrador.hora!)))}! Solo me falta un dato: ¿a nombre de quién la agendo? Dime *nombre y apellido*, por favor 😊`,
+        msg("cita:paciente", { hora: horaCorta(formatLimaTime(new Date(borrador.hora!))) }),
         { kind: "cita:paciente" },
       );
       return { atendido: true, detalle: "paso 5: pedir nombre" };
@@ -310,8 +314,12 @@ export async function conducirCita(e: Entrada): Promise<Resultado> {
     await guardarBorrador(conversationId, null);
     await sendBotText(
       conversationId,
-      `¡Listo! Tu evaluación visual queda para el *${formatLima(new Date(borrador.hora!))}* en ${cita.branch.nombre} (${cita.branch.direccion}).\n\n` +
-        `Va a nombre de *${borrador.paciente}*. Si necesitas cambiarla, escríbeme y la movemos. ¡Te esperamos! 😊`,
+      msg("cita:agendada", {
+        cuando: formatLima(new Date(borrador.hora!)),
+        sucursal: cita.branch.nombre,
+        direccion: cita.branch.direccion,
+        paciente: borrador.paciente,
+      }),
       { kind: "cita:agendada", appointment_id: cita.appointmentId },
     );
     return { atendido: true, detalle: "cita agendada por el código" };

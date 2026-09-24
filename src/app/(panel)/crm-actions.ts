@@ -12,6 +12,7 @@ import { setAgentEnabled } from "@/lib/settings";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { KNOWLEDGE_CATEGORIES, LEAD_ORIGINS, MANUAL_ARCHIVE_REASONS } from "@/lib/types";
 import { createTemplate, syncTemplates, TEMPLATE_DEFS, updateTemplate } from "@/lib/whatsapp/templates";
+import { MENSAJES } from "@/lib/agent/mensajes";
 import { CATEGORIAS, revisarPlantilla, variablesDe } from "@/lib/whatsapp/plantilla-reglas";
 
 // Escrituras con la sesión del usuario: RLS es la barrera (asesor = su sucursal o todas si no tiene una, admin = todo).
@@ -649,6 +650,46 @@ export async function crearPlantilla(formData: FormData) {
     if (isRedirectError(err)) throw err;
     back("/plantillas", "error", err instanceof Error ? err.message : "No se pudo crear la plantilla");
   }
+}
+
+/**
+ * Cambia uno de los textos que el agente envía durante una cita.
+ *
+ * Que los pasos los mande el código garantiza que salgan siempre igual; el tono con el que se le habla al
+ * cliente, en cambio, es del negocio. Dejarlo en el código obligaba a pedir un cambio y esperar.
+ */
+export async function guardarMensajeAgente(formData: FormData) {
+  const { profile } = await requireAdmin();
+  const parsed = z
+    .object({ clave: z.string().trim().min(1), texto: z.string().trim().min(1).max(1000) })
+    .safeParse(Object.fromEntries(formData));
+  if (!parsed.success) back("/agente", "error", "El mensaje no puede quedar vacío");
+
+  const def = MENSAJES.find((m) => m.clave === parsed.data.clave);
+  if (!def) back("/agente", "error", "Ese mensaje no existe");
+
+  // Los huecos que el texto use tienen que ser de los que este mensaje recibe: {{sucursal}} en un mensaje que
+  // no sabe la sucursal saldría vacío y nadie entendería por qué.
+  const usados = [...parsed.data.texto.matchAll(/\{\{(\w+)\}\}/g)].map((m) => m[1]);
+  const invalido = usados.find((h) => !def.huecos.includes(h));
+  if (invalido) back("/agente", "error", `«{{${invalido}}}» no se puede usar aquí. Disponibles: ${def.huecos.map((h) => `{{${h}}}`).join(", ") || "ninguno"}`);
+
+  const { error } = await createAdminClient()
+    .from("agent_messages")
+    .upsert({ clave: parsed.data.clave, texto: parsed.data.texto, updated_by: profile.id }, { onConflict: "clave" });
+  if (error) back("/agente", "error", `No se pudo guardar: ${error.message}`);
+  revalidatePath("/agente");
+  back("/agente", "ok", "Mensaje actualizado: el agente lo usa desde la próxima conversación");
+}
+
+/** Devuelve un mensaje a como venía de fábrica. */
+export async function restaurarMensajeAgente(formData: FormData) {
+  await requireAdmin();
+  const clave = String(formData.get("clave") ?? "");
+  const { error } = await createAdminClient().from("agent_messages").delete().eq("clave", clave);
+  if (error) back("/agente", "error", `No se pudo restaurar: ${error.message}`);
+  revalidatePath("/agente");
+  back("/agente", "ok", "Mensaje restaurado al original");
 }
 
 // ── Anuncios: gasto por anuncio (admin) ──────────────────────────────────
