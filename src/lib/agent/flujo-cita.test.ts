@@ -54,7 +54,7 @@ vi.mock("@/lib/appointments", () => ({
   findNextSlots: async () => h.state.proximos,
 }));
 
-import { conducirCita, diaElegido, franjaElegida, horaElegida, pideCita, proximosDias, tiendaNombrada } from "./flujo-cita";
+import { conducirCita, diaElegido, franjaElegida, horaElegida, horaPedida, pideCita, proximosDias, tiendaNombrada } from "./flujo-cita";
 
 const TIENDAS = [
   { nombre: "Huánuco", direccion: "Jr. 28 de Julio 1131" },
@@ -305,5 +305,36 @@ describe("«En otra tienda»", () => {
     h.state.borrador = { desde: new Date().toISOString(), otraTienda: true };
     await conducir("Huánuco", { branchNombre: "Tingo María", branchId: "b-tingo" });
     expect(h.sendBotOptions.mock.calls.at(-1)?.[1]).toContain("¿Qué día te viene bien?");
+  });
+});
+
+/**
+ * Solo se enseñan tres botones aunque haya más huecos, así que quien quiere otra hora la escribe a mano. Si no
+ * se reconoce, se le repite la misma lista y se queda pulsando sin que nadie conteste a lo que preguntó.
+ */
+describe("la hora escrita a mano", () => {
+  it("se entiende como la escriba", () => {
+    const seisTarde = 18 * 60;
+    expect(horaPedida("6pm")).toBe(seisTarde);
+    expect(horaPedida("plan 6pm")).toBe(seisTarde);
+    expect(horaPedida("a las 6")).toBe(seisTarde);
+    expect(horaPedida("18:00")).toBe(seisTarde);
+    expect(horaPedida("6 de la tarde")).toBe(seisTarde);
+    expect(horaPedida("6:30 pm")).toBe(18 * 60 + 30);
+    expect(horaPedida("9 am")).toBe(9 * 60);
+    expect(horaPedida("el sábado")).toBeNull();
+  });
+
+  it("si esa hora está libre, se toma aunque no fuera uno de los botones", async () => {
+    // 2, 3 y 4 pm se ofrecen; las 6 existe pero no se mostró.
+    const libres = ["2026-09-26T19:00:00.000Z", "2026-09-26T23:00:00.000Z"]; // 2 pm y 6 pm en Lima
+    expect(horaElegida("plan 6pm", libres)).toBe(libres[1]);
+  });
+
+  it("si no hay cupo a esa hora, se dice en vez de repetir la lista", async () => {
+    h.state.borrador = { sucursal: "Huánuco", fecha: "2026-09-26", franja: "tarde", desde: new Date().toISOString() };
+    h.state.libres = ["2026-09-26T19:00:00.000Z"]; // solo las 2 pm
+    await conducir("plan 6pm");
+    expect(h.sendBotOptions.mock.calls.at(-1)?.[1]).toContain("ya no me queda cupo");
   });
 });

@@ -75,6 +75,12 @@ export const MENSAJES: MensajeDef[] = [
     huecos: ["dia", "franja"],
   },
   {
+    clave: "cita:hora-ocupada",
+    cuando: "Cuando pide una hora concreta que ya no tiene cupo",
+    texto: "A las {{pedida}} ya no me queda cupo ese día. Estos sí están libres:",
+    huecos: ["pedida"],
+  },
+  {
     clave: "cita:hora-otro-dia",
     cuando: "Cuando ese día ya no tiene cupo y se ofrecen los siguientes",
     texto: "Ese día ya no me queda cupo por la {{franja}}. Estos son los más próximos:",

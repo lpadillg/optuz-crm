@@ -111,10 +111,42 @@ export function franjaElegida(texto: string): "mañana" | "tarde" | null {
   return null;
 }
 
-/** La hora que eligió, si es uno de los horarios que le ofrecimos. */
+/**
+ * La hora que pide el cliente, escríbala como la escriba: «3:00 pm», «6pm», «18:00», «a las 6 de la tarde».
+ * Devuelve los minutos desde medianoche, en hora de Lima.
+ *
+ * Hace falta porque solo se le enseñan tres botones aunque haya más huecos: quien quiere las 6 la escribe a
+ * mano, y compararla con el texto de los botones no la reconocía nunca.
+ */
+export function horaPedida(texto: string): number | null {
+  const t = normal(texto);
+  const m = t.match(/(\d{1,2})(?:[:.](\d{2}))?\s*(am|a\.?\s?m|pm|p\.?\s?m|de la manana|de la tarde|de la noche|h|hrs)?/);
+  if (!m) return null;
+  let hora = Number(m[1]);
+  const min = Number(m[2] ?? 0);
+  if (hora > 23 || min > 59) return null;
+  const sufijo = m[3] ?? "";
+  const esTarde = /^p|tarde|noche/.test(sufijo);
+  const esManana = /^a|manana/.test(sufijo);
+  if (esTarde && hora < 12) hora += 12;
+  if (esManana && hora === 12) hora = 0;
+  // Sin sufijo, una hora suelta se entiende como la del horario de atención: «a las 6» es por la tarde.
+  if (!sufijo && hora < 8) hora += 12;
+  return hora * 60 + min;
+}
+
+/** La hora que eligió, si coincide con uno de los horarios libres. */
 export function horaElegida(texto: string, opciones: string[]): string | null {
-  const t = normal(texto).replace(/\s+/g, " ");
-  return opciones.find((iso) => t.includes(normal(formatLimaTime(new Date(iso))).replace(/\s+/g, " "))) ?? null;
+  const pedida = horaPedida(texto);
+  if (pedida === null) return null;
+  return (
+    opciones.find((iso) => {
+      const d = new Date(iso);
+      const enLima = new Intl.DateTimeFormat("en-GB", { timeZone: "America/Lima", hour: "2-digit", minute: "2-digit", hour12: false }).format(d);
+      const [h, mm] = enLima.split(":").map(Number);
+      return h * 60 + mm === pedida;
+    }) ?? null
+  );
 }
 
 /**
@@ -300,13 +332,17 @@ export async function conducirCita(e: Entrada): Promise<Resultado> {
         );
         return { atendido: true, detalle: "paso 4: horarios de otro día" };
       }
-      await sendBotOptions(
-        conversationId,
-        msg("cita:hora", { dia: diaLargo(borrador.fecha), franja: borrador.franja }),
-        libres.slice(0, 3).map((s) => formatLimaTime(new Date(s))),
-        { kind: "cita:hora" },
-      );
-      return { atendido: true, detalle: "paso 4: elegir hora" };
+      // Si pidió una hora concreta y no la hay, se le dice: repetir la misma lista deja al cliente pulsando
+      // sin entender por qué no le contestan a lo que preguntó.
+      const pedida = horaPedida(texto);
+      const cabecera =
+        pedida !== null
+          ? msg("cita:hora-ocupada", { pedida: horaCorta(formatLimaTime(new Date(`${borrador.fecha}T${String(Math.floor(pedida / 60)).padStart(2, "0")}:${String(pedida % 60).padStart(2, "0")}:00-05:00`))) })
+          : msg("cita:hora", { dia: diaLargo(borrador.fecha), franja: borrador.franja });
+      await sendBotOptions(conversationId, cabecera, libres.slice(0, 3).map((s) => formatLimaTime(new Date(s))), {
+        kind: "cita:hora",
+      });
+      return { atendido: true, detalle: pedida !== null ? "paso 4: la hora pedida no tiene cupo" : "paso 4: elegir hora" };
     }
   }
 
@@ -368,10 +404,11 @@ export async function conducirCita(e: Entrada): Promise<Resultado> {
   }
 }
 
+/** «sábado 26 de setiembre»: sin la coma que mete el formato del sistema, que dentro de una frase estorba. */
 const diaLargo = (fecha: string) =>
-  new Intl.DateTimeFormat("es-PE", { timeZone: "America/Lima", weekday: "long", day: "numeric", month: "long" }).format(
-    new Date(`${fecha}T12:00:00-05:00`),
-  );
+  new Intl.DateTimeFormat("es-PE", { timeZone: "America/Lima", weekday: "long", day: "numeric", month: "long" })
+    .format(new Date(`${fecha}T12:00:00-05:00`))
+    .replace(",", "");
 
 /** Un saludo y nada más: «hola», «buenas tardes», «buen día». */
 const SALUDO_SUELTO = /^\s*(hola|buenas?|buen dia|buenos dias|buenas tardes|buenas noches|que tal|saludos|hey|holi)[\s!.,¡😊👋🙏]*$/;
