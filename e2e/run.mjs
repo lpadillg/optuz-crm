@@ -776,6 +776,16 @@ await pa.fill("input[name=titulo]", "Otro");
 await pa.fill("textarea[name=cuerpo]", "x");
 await pa.getByRole("button", { name: "Crear" }).click();
 check("respuestas rápidas: atajo repetido → aviso", await pa.getByText("Ya existe el atajo /e2e-saludo").isVisible({ timeout: 30000 }).catch(() => false));
+// Corregir una respuesta sin borrarla: antes había que rehacerla entera por cambiar una palabra.
+await pa.goto(`${BASE}/respuestas`);
+await pa.getByRole("button", { name: "Editar" }).first().click();
+await pa.locator("dialog[open] textarea[name=cuerpo]").fill("Hola, gracias por escribir. Estamos para ayudarte 😊");
+await pa.locator("dialog[open]").getByRole("button", { name: "Guardar cambios" }).click();
+check("respuestas rápidas: editar guarda el texto nuevo y conserva el atajo", !!(await waitFor(async () => {
+  const r = (await q(db.from("quick_replies").select("atajo, cuerpo").eq("atajo", "e2e-saludo")))[0];
+  return r?.cuerpo === "Hola, gracias por escribir. Estamos para ayudarte 😊";
+}, 15000)));
+
 await p.goto(`${BASE}/respuestas`);
 check("respuestas rápidas: el vendedor no accede (redirige al inbox)", p.url().includes("/inbox"), p.url());
 

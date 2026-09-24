@@ -1,8 +1,9 @@
-import { createQuickReply, deleteQuickReply } from "@/app/(panel)/crm-actions";
+import { createQuickReply, deleteQuickReply, updateQuickReply } from "@/app/(panel)/crm-actions";
 import { FormDialog } from "@/components/form-dialog";
 import { Icon } from "@/components/icons";
 import { MessagePreviewField } from "@/components/message-preview";
 import { PageHelp } from "@/components/page-help";
+import { SubmitButton } from "@/components/submit-button";
 import { requireAdmin } from "@/lib/session";
 
 export default async function QuickRepliesPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
@@ -48,7 +49,7 @@ export default async function QuickRepliesPage({ searchParams }: { searchParams:
             </div>
             <MessagePreviewField name="cuerpo" label="Mensaje" rows={4} maxLength={1500} placeholder="Estamos en…" />
             <div className="form-actions">
-              <button type="submit">Crear</button>
+              <SubmitButton pendingLabel="Creando…">Crear</SubmitButton>
             </div>
           </form>
         </FormDialog>
@@ -88,12 +89,37 @@ export default async function QuickRepliesPage({ searchParams }: { searchParams:
                   {q.cuerpo}
                 </td>
                 <td>
-                  <form action={deleteQuickReply}>
-                    <input type="hidden" name="id" value={q.id} />
-                    <button className="danger btn-sm" type="submit">
-                      Eliminar
-                    </button>
-                  </form>
+                  <div className="row-actions">
+                    <FormDialog
+                      trigger="Editar"
+                      title={`Editar /${q.atajo}`}
+                      description="Los cambios valen para la próxima vez que alguien use el atajo."
+                    >
+                      <form action={updateQuickReply} className="stack" style={{ gap: 14 }}>
+                        <input type="hidden" name="id" value={q.id} />
+                        <div className="row">
+                          <label>
+                            Atajo <span className="hint">(sin la barra)</span>
+                            <input name="atajo" required maxLength={30} defaultValue={q.atajo} />
+                          </label>
+                          <label>
+                            Título
+                            <input name="titulo" required maxLength={80} defaultValue={q.titulo} />
+                          </label>
+                        </div>
+                        <MessagePreviewField name="cuerpo" label="Mensaje" rows={4} maxLength={1500} defaultValue={q.cuerpo} />
+                        <div className="form-actions">
+                          <SubmitButton>Guardar cambios</SubmitButton>
+                        </div>
+                      </form>
+                    </FormDialog>
+                    <form action={deleteQuickReply}>
+                      <input type="hidden" name="id" value={q.id} />
+                      <button className="danger btn-sm" type="submit">
+                        Eliminar
+                      </button>
+                    </form>
+                  </div>
                 </td>
               </tr>
             ))}

@@ -123,18 +123,20 @@ export async function updateContact(formData: FormData) {
 
 // ── Respuestas rápidas (admin) ───────────────────────────────────────────
 
+/** Lo que vale para una respuesta rápida, al crearla y al corregirla. */
+const quickReplyFields = z.object({
+  atajo: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .regex(/^[a-z0-9_-]{1,30}$/, "El atajo solo admite letras, números, guion y guion bajo (máx. 30)"),
+  titulo: z.string().trim().min(1, "El título es obligatorio").max(80),
+  cuerpo: z.string().trim().min(1, "El mensaje es obligatorio").max(1500),
+});
+
 export async function createQuickReply(formData: FormData) {
   const { supabase } = await requireAdmin();
-  const parsed = z
-    .object({
-      atajo: z
-        .string()
-        .trim()
-        .toLowerCase()
-        .regex(/^[a-z0-9_-]{1,30}$/, "El atajo solo admite letras, números, guion y guion bajo (máx. 30)"),
-      titulo: z.string().trim().min(1, "El título es obligatorio").max(80),
-      cuerpo: z.string().trim().min(1, "El mensaje es obligatorio").max(1500),
-    })
+  const parsed = quickReplyFields
     .safeParse({
       atajo: (formData.get("atajo") ?? "").toString().replace(/^\//, ""),
       titulo: formData.get("titulo") ?? "",
@@ -145,6 +147,29 @@ export async function createQuickReply(formData: FormData) {
   if (error) back("/respuestas", "error", error.code === "23505" ? `Ya existe el atajo /${parsed.data.atajo}` : error.message);
   revalidatePath("/respuestas");
   back("/respuestas", "ok", `Respuesta /${parsed.data.atajo} creada`);
+}
+
+/**
+ * Corrige una respuesta rápida. Antes solo se podía borrar y volver a crearla, lo que obliga a reescribirla
+ * entera por cambiar una palabra —y a acordarse del atajo— con el riesgo de dejar al equipo sin ella.
+ */
+export async function updateQuickReply(formData: FormData) {
+  const { supabase } = await requireAdmin();
+  const id = z.uuid().safeParse(formData.get("id"));
+  const parsed = quickReplyFields.safeParse({
+    atajo: (formData.get("atajo") ?? "").toString().replace(/^\//, ""),
+    titulo: formData.get("titulo") ?? "",
+    cuerpo: formData.get("cuerpo") ?? "",
+  });
+  if (!id.success) back("/respuestas", "error", "Respuesta no encontrada");
+  if (!parsed.success) back("/respuestas", "error", parsed.error.issues[0].message);
+
+  const { data, error } = await supabase.from("quick_replies").update(parsed.data).eq("id", id.data).select("id");
+  if (error) back("/respuestas", "error", error.code === "23505" ? `Ya existe el atajo /${parsed.data.atajo}` : error.message);
+  // Un UPDATE que no alcanza ninguna fila no da error: se quedaría todo igual y nadie se enteraría.
+  if (!data?.length) back("/respuestas", "error", "No se guardó: esa respuesta ya no existe o tu usuario no puede editarla.");
+  revalidatePath("/respuestas");
+  back("/respuestas", "ok", `Respuesta /${parsed.data.atajo} actualizada`);
 }
 
 export async function deleteQuickReply(formData: FormData) {
