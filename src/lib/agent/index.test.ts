@@ -9,7 +9,12 @@ const h = vi.hoisted(() => {
     phone: "+51987654321" as string | null,
     branchId: "b1" as string | null,
     latestInboundId: "m1",
-    history: [{ direction: "in", sender: "lead", content: "Hola, ¿cuánto cuesta un examen?", attachments: [] }] as Record<string, unknown>[],
+    // Una conversación ya empezada: el primer contacto tiene su propio flujo (la bienvenida con el aviso de
+    // datos) y se prueba aparte.
+    history: [
+      { direction: "out", sender: "bot", content: "¡Hola! ¿En qué te ayudo?", attachments: [] },
+      { direction: "in", sender: "lead", content: "Hola, ¿cuánto cuesta un examen?", attachments: [] },
+    ] as Record<string, unknown>[],
     writes: [] as { table: string; op: string; payload: unknown; filters: [string, unknown][] }[],
   };
 
@@ -65,7 +70,7 @@ const h = vi.hoisted(() => {
     return b;
   }
 
-  return { state, db: { from: builder }, create: vi.fn(), send: vi.fn(), sendOptions: vi.fn(), nextSlots: vi.fn(), executeTool: vi.fn() };
+  return { state, sendBotText: vi.fn(), db: { from: builder }, create: vi.fn(), send: vi.fn(), sendOptions: vi.fn(), nextSlots: vi.fn(), executeTool: vi.fn() };
 });
 
 vi.mock("server-only", () => ({}));
@@ -76,7 +81,7 @@ vi.mock("openai", () => ({
 }));
 vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: () => h.db }));
 vi.mock("@/lib/whatsapp/client", () => ({ sendWhatsAppText: h.send }));
-vi.mock("@/lib/outbound", () => ({ sendBotOptions: h.sendOptions }));
+vi.mock("@/lib/outbound", () => ({ sendBotOptions: h.sendOptions, sendBotText: h.sendBotText }));
 vi.mock("@/lib/appointments", () => ({ findNextSlots: h.nextSlots }));
 vi.mock("./tools", () => ({
   AGENT_TOOLS: [{ name: "set_branch", description: "d", input_schema: { type: "object", properties: {} } }],
@@ -118,7 +123,10 @@ beforeEach(() => {
     phone: "+51987654321",
     latestInboundId: "m1",
     writes: [],
-    history: [{ direction: "in", sender: "lead", content: "Hola, ¿cuánto cuesta un examen?", attachments: [] }],
+    history: [
+      { direction: "out", sender: "bot", content: "¡Hola! ¿En qué te ayudo?", attachments: [] },
+      { direction: "in", sender: "lead", content: "Hola, ¿cuánto cuesta un examen?", attachments: [] },
+    ],
   });
   n = 0;
   h.create.mockReset();
@@ -188,15 +196,16 @@ describe("runAgent", () => {
     expect(h.executeTool).toHaveBeenCalledWith("book_appointment", null, expect.anything());
   });
 
-  it("primer mensaje del bot: el contexto pide el aviso de datos; después ya no", async () => {
-    h.create.mockResolvedValue(textReply("ok"));
+  it("primer contacto: el código envía la bienvenida con el aviso de datos, y el modelo no lo repite", async () => {
+    // Antes el aviso se le pedía al modelo y se lo saltaba: a un «Hola» contestaba un saludo y nada más.
+    h.state.history = [{ direction: "in", sender: "lead", content: "¿cuánto cuesta un examen?", attachments: [] }];
+    h.create.mockResolvedValue(textReply("El examen es gratuito."));
     await runAgent(ctx);
-    expect(params(0).instructions).toContain("Es tu primer mensaje a este cliente");
 
-    h.state.history.push({ direction: "out", sender: "bot", content: "Hola", attachments: [] }, { direction: "in", sender: "lead", content: "y?", attachments: [] });
-    h.create.mockClear();
-    await runAgent(ctx);
-    expect(params(0).instructions).not.toContain("Es tu primer mensaje a este cliente");
+    const bienvenida = h.sendBotText.mock.calls[0]?.[1] as string;
+    expect(bienvenida).toContain("PROMO");
+    expect(bienvenida).toContain("BAJA");
+    expect(params(0).instructions).toContain("ya le enviaste el aviso de datos");
   });
 
   it("cliente sin número visible: el contexto le indica al agente pedir un teléfono de contacto", async () => {

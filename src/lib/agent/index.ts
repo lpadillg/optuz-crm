@@ -10,7 +10,7 @@ import { sendBotOptions } from "@/lib/outbound";
 import { sendWhatsAppText } from "@/lib/whatsapp/client";
 import { toTurns } from "./history";
 import { converse, type RunStats } from "./llm";
-import { conducirCita } from "./flujo-cita";
+import { conducirCita, darBienvenida, esSaludoSuelto } from "./flujo-cita";
 import { dynamicContext, staticSystemPrompt } from "./prompt";
 import type { ToolContext } from "./tools";
 
@@ -178,6 +178,16 @@ async function respond(ctx: AgentContext): Promise<RunResult> {
   // después, leyendo su texto, en qué paso creía estar. Si falta alguno se pregunta aquí, con botones, y el
   // turno acaba: además de salir siempre igual, se ahorra la llamada al modelo.
   const ultimoDelCliente = [...history].reverse().find((m) => m.direction === "in")?.content ?? "";
+  // ── Primer contacto: quién le escribe y el aviso de datos ──
+  // Es obligatorio y el modelo se lo saltaba: a un «Hola» contestaba con un saludo y nada más. Si además de
+  // saludar preguntó algo, la bienvenida va delante y el modelo responde a continuación.
+  if (isFirstBotReply) {
+    await darBienvenida(ctx.conversationId, { nombreCliente: lead.nombre, negocio: env.businessName });
+    if (esSaludoSuelto(ultimoDelCliente as string)) {
+      return { outcome: "reply", detail: "bienvenida (primer contacto)", stats: undefined };
+    }
+  }
+
   // La promoción vigente, para reconocerla si el cliente viene por ella (mucha gente escribe «vi el 2x1»).
   const ahora = new Date().toISOString();
   const { data: promos } = await db

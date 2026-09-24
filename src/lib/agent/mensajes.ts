@@ -20,6 +20,13 @@ export interface MensajeDef {
 
 export const MENSAJES: MensajeDef[] = [
   {
+    clave: "bienvenida",
+    cuando: "Lo primero que recibe un cliente que escribe por primera vez",
+    texto:
+      "¡Hola{{nombre}}! 👋 Soy el asistente de {{negocio}}.\n\nUsamos tus datos solo para atender tu consulta y agendar tu cita. Si quieres recibir nuestras promociones escribe *PROMO*, y si prefieres no recibir mensajes, escribe *BAJA*.\n\n¿En qué puedo ayudarte?",
+    huecos: ["nombre", "negocio"],
+  },
+  {
     clave: "cita:saludo",
     cuando: "Al empezar una cita, antes de ofrecer las tiendas",
     texto: "¡Hola, {{nombre}}!",

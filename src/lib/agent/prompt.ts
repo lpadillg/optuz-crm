@@ -283,8 +283,10 @@ export function dynamicContext(ctx: DynamicContext): string {
     );
   }
   if (ctx.isFirstBotReply) {
+    // El aviso de datos ya se lo envió el código en su mensaje de bienvenida: es obligatorio y el modelo se
+    // lo saltaba. Aquí solo se le dice para que no lo repita.
     lines.push(
-      `- Es tu primer mensaje a este cliente: incluye, en una frase breve, que usamos sus datos solo para atender su consulta y agendar su cita, que si además quiere recibir promociones puede escribir "PROMO", y que si no quiere recibir mensajes puede escribir "BAJA". No ofrezcas enviarle promociones por tu cuenta.`,
+      `- A este cliente acabas de presentarte y ya le enviaste el aviso de datos (con PROMO y BAJA). NO lo repitas: responde directamente a lo que te preguntó.`,
     );
   }
   return lines.join("\n");

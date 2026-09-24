@@ -314,7 +314,12 @@ check("OpenAI: 3 llamadas (set_branch → promociones → respuesta)", llmCalls.
 const c1 = llmCalls[0];
 check("OpenAI: gpt-5.6-terra, razonamiento medio, una herramienta por vez, autenticado con la API key", c1?.body.model === "gpt-5.6-terra" && c1.body.reasoning?.effort === "medium" && c1.body.parallel_tool_calls === false && c1.headers.authorization === "Bearer sk-e2e-test", JSON.stringify({ m: c1?.body.model, r: c1?.body.reasoning, p: c1?.body.parallel_tool_calls, a: c1?.headers.authorization }));
 check("OpenAI: 12 herramientas declaradas (formato function)", c1?.body.tools?.length === 12 && c1.body.tools.every((t) => t.type === "function" && t.parameters?.type === "object"), String(c1?.body.tools?.length));
-check("OpenAI: las instrucciones traen el nombre del negocio, la sucursal detectada y el aviso de primer mensaje", c1?.body.instructions.includes("Caddyf Centro Óptico") && c1.body.instructions.includes("Huánuco") && c1.body.instructions.includes("primer mensaje"));
+check("OpenAI: las instrucciones traen el nombre del negocio, la sucursal detectada y que ya se envió el aviso de datos", c1?.body.instructions.includes("Caddyf Centro Óptico") && c1.body.instructions.includes("Huánuco") && c1.body.instructions.includes("aviso de datos"));
+// El aviso de datos (PROMO/BAJA) lo manda el código en la bienvenida: es obligatorio y el modelo se lo saltaba.
+const bienvenida = (await q(db.from("messages").select("content, meta").eq("conversation_id", conv.id).eq("direction", "out").order("created_at", { ascending: true }).limit(1)))[0];
+check("primer contacto: la bienvenida presenta el negocio y trae el aviso de datos con PROMO y BAJA",
+  bienvenida?.meta?.kind === "bienvenida" && /PROMO/.test(bienvenida.content) && /BAJA/.test(bienvenida.content) && /Caddyf/.test(bienvenida.content),
+  JSON.stringify(bienvenida?.content));
 check("OpenAI: el historial que ve es solo el mensaje del cliente", c1?.body.input.length === 1 && c1.body.input[0].role === "user" && String(c1.body.input[0].content).includes("vi su anuncio"));
 check("OpenAI: las vueltas se encadenan con previous_response_id y solo mandan lo nuevo", !("previous_response_id" in c1.body) && llmCalls[1]?.body.previous_response_id === "resp_1" && llmCalls[2]?.body.previous_response_id === "resp_2" && llmCalls[1].body.input.length === 1 && llmCalls[1].body.input[0].type === "function_call_output", JSON.stringify(llmCalls[1]?.body.input));
 check("OpenAI: las instrucciones se reenvían en cada vuelta (no se heredan)", llmCalls[1]?.body.instructions === c1?.body.instructions && llmCalls[2]?.body.instructions === c1?.body.instructions);

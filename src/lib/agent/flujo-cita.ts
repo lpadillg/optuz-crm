@@ -340,6 +340,28 @@ const diaLargo = (fecha: string) =>
     new Date(`${fecha}T12:00:00-05:00`),
   );
 
+/** Un saludo y nada más: «hola», «buenas tardes», «buen día». */
+const SALUDO_SUELTO = /^\s*(hola|buenas?|buen dia|buenos dias|buenas tardes|buenas noches|que tal|saludos|hey|holi)[\s!.,¡😊👋🙏]*$/;
+export const esSaludoSuelto = (texto: string) => SALUDO_SUELTO.test(normal(texto));
+
+/**
+ * El primer mensaje a un cliente nuevo: quién le escribe y el aviso de datos, con PROMO y BAJA.
+ *
+ * Lo manda el código porque es obligatorio y el modelo se lo saltaba: a un «Hola» contestaba «¡Hola! Buenas
+ * días 😊 ¿En qué puedo ayudarte?» —sin presentarse, sin el aviso y con una falta de concordancia—. Un
+ * requisito legal no puede depender de que el modelo se acuerde.
+ */
+export async function darBienvenida(
+  conversationId: string,
+  opciones: { nombreCliente?: string | null; negocio: string },
+): Promise<void> {
+  const msg = await cargarMensajes();
+  const nombre = opciones.nombreCliente?.trim().split(/\s+/)[0];
+  await sendBotText(conversationId, msg("bienvenida", { nombre: nombre ? `, ${nombre}` : "", negocio: opciones.negocio }), {
+    kind: "bienvenida",
+  });
+}
+
 /** Empezar de cero: el cliente volvió a pedir cita y lo anterior ya no vale. */
 export async function olvidarBorrador(conversationId: string): Promise<void> {
   await guardarBorrador(conversationId, null);
